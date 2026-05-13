@@ -1,0 +1,1 @@
+"""Trading system research utilities."""

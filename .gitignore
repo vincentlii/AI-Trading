@@ -1,0 +1,7 @@
+/.venv/
+__pycache__/
+*.pyc
+/storage/
+/data/
+/reports/
+/backtest_results/
