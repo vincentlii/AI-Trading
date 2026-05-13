@@ -17,9 +17,10 @@
 - OKX 公开行情适配器：ticker、candles、instruments。
 - 资产宇宙：OKX 主数据源，Binance 作为 BTC/ETH 校验源预留。
 - DuckDB 历史 K 线仓库：按 `venue + inst_type + inst_id + bar + ts_ms` 隔离。
+- OKX 历史 K 线下载器 v1：小批量下载 confirmed K 线并写入 DuckDB。
 - 市场体制基础指标：True Range、Kaufman ER、CHOP、regime 分类。
 
-下一小步：实现 `OKX 历史 K 线下载器 v1`。
+下一小步：数据质量检查与第一版回测/风控模型。
 
 ## 核心文档
 
@@ -42,6 +43,7 @@ D:\交易系统
 ├── 代理协作流程.md
 ├── requirements.txt
 ├── scripts
+│   ├── download_okx_history.py
 │   └── okx_market_smoke.py
 ├── trading_system
 │   ├── __init__.py
@@ -93,6 +95,18 @@ OKX 公开行情冒烟测试：
 
 ```powershell
 .\.venv\Scripts\python scripts\okx_market_smoke.py
+```
+
+下载 OKX 最近一页历史 K 线到 DuckDB：
+
+```powershell
+.\.venv\Scripts\python scripts\download_okx_history.py --limit 10 --max-pages 1
+```
+
+如果 `okx` 不在 PATH 中，可显式传入命令路径：
+
+```powershell
+.\.venv\Scripts\python scripts\download_okx_history.py --limit 10 --max-pages 1 --okx-command "C:\Users\85394\AppData\Roaming\npm\okx.cmd"
 ```
 
 ## 数据边界
