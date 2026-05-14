@@ -1,11 +1,16 @@
 import unittest
 
 from trading_system.data.universe import (
+    INDEX,
     DEFAULT_PRIMARY_VENUE,
     DEFAULT_VALIDATION_VENUES,
+    InstrumentSpec,
     SymbolMapping,
+    VenueSymbol,
     default_symbols,
+    get_instrument,
     get_symbol_mapping,
+    list_instruments,
     required_okx_bars_for_profiles,
     timeframe_to_okx_bar,
 )
@@ -55,6 +60,32 @@ class DataUniverseTests(unittest.TestCase):
 
     def test_required_okx_bars_do_not_include_1m_from_default_profiles(self):
         self.assertNotIn("1m", required_okx_bars_for_profiles())
+
+    def test_default_instruments_keep_existing_default_symbol_behavior(self):
+        self.assertEqual(default_symbols(), ("BTC-USDT", "ETH-USDT", "XAUT-USDT"))
+
+        default_instruments = tuple(item.canonical_symbol for item in list_instruments(default_only=True))
+
+        self.assertEqual(default_instruments, ("BTC/USDT", "ETH/USDT", "XAUT/USDT"))
+
+    def test_nasdaq_index_is_reserved_but_not_part_of_default_okx_downloads(self):
+        instrument = get_instrument("NASDAQ100/INDEX")
+
+        self.assertEqual(
+            instrument,
+            InstrumentSpec(
+                canonical_symbol="NASDAQ100/INDEX",
+                asset_class=INDEX,
+                quote_asset="USD",
+                primary_venue="external",
+                venue_symbols=(
+                    VenueSymbol(venue="external", symbol="NASDAQ100"),
+                ),
+                is_default=False,
+            ),
+        )
+        self.assertNotIn("NASDAQ100", default_symbols())
+        self.assertEqual(required_okx_bars_for_profiles(), ("5m", "15m", "1H", "4H", "1D"))
 
 
 if __name__ == "__main__":

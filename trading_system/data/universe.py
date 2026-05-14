@@ -9,6 +9,8 @@ from trading_system.timeframe_profiles import TimeframeProfile, list_default_pro
 DEFAULT_SYMBOLS = ("BTC-USDT", "ETH-USDT", "XAUT-USDT")
 DEFAULT_PRIMARY_VENUE = "okx"
 DEFAULT_VALIDATION_VENUES = ("binance",)
+CRYPTO_SPOT = "CRYPTO_SPOT"
+INDEX = "INDEX"
 
 
 @dataclass(frozen=True)
@@ -18,15 +20,92 @@ class SymbolMapping:
     binance_symbol: str
 
 
+@dataclass(frozen=True)
+class VenueSymbol:
+    venue: str
+    symbol: str
+
+
+@dataclass(frozen=True)
+class InstrumentSpec:
+    canonical_symbol: str
+    asset_class: str
+    quote_asset: str
+    primary_venue: str
+    venue_symbols: tuple[VenueSymbol, ...]
+    is_default: bool = False
+
+
 _SYMBOL_MAPPINGS = {
     "BTC/USDT": SymbolMapping("BTC/USDT", "BTC-USDT", "BTCUSDT"),
     "ETH/USDT": SymbolMapping("ETH/USDT", "ETH-USDT", "ETHUSDT"),
     "XAUT/USDT": SymbolMapping("XAUT/USDT", "XAUT-USDT", "XAUTUSDT"),
 }
 
+_INSTRUMENTS = {
+    "BTC/USDT": InstrumentSpec(
+        canonical_symbol="BTC/USDT",
+        asset_class=CRYPTO_SPOT,
+        quote_asset="USDT",
+        primary_venue="okx",
+        venue_symbols=(
+            VenueSymbol(venue="okx", symbol="BTC-USDT"),
+            VenueSymbol(venue="binance", symbol="BTCUSDT"),
+        ),
+        is_default=True,
+    ),
+    "ETH/USDT": InstrumentSpec(
+        canonical_symbol="ETH/USDT",
+        asset_class=CRYPTO_SPOT,
+        quote_asset="USDT",
+        primary_venue="okx",
+        venue_symbols=(
+            VenueSymbol(venue="okx", symbol="ETH-USDT"),
+            VenueSymbol(venue="binance", symbol="ETHUSDT"),
+        ),
+        is_default=True,
+    ),
+    "XAUT/USDT": InstrumentSpec(
+        canonical_symbol="XAUT/USDT",
+        asset_class=CRYPTO_SPOT,
+        quote_asset="USDT",
+        primary_venue="okx",
+        venue_symbols=(
+            VenueSymbol(venue="okx", symbol="XAUT-USDT"),
+            VenueSymbol(venue="binance", symbol="XAUTUSDT"),
+        ),
+        is_default=True,
+    ),
+    "NASDAQ100/INDEX": InstrumentSpec(
+        canonical_symbol="NASDAQ100/INDEX",
+        asset_class=INDEX,
+        quote_asset="USD",
+        primary_venue="external",
+        venue_symbols=(
+            VenueSymbol(venue="external", symbol="NASDAQ100"),
+        ),
+        is_default=False,
+    ),
+}
+
 
 def default_symbols() -> tuple[str, ...]:
     return DEFAULT_SYMBOLS
+
+
+def list_instruments(*, default_only: bool = False) -> tuple[InstrumentSpec, ...]:
+    instruments = tuple(_INSTRUMENTS.values())
+    if default_only:
+        return tuple(instrument for instrument in instruments if instrument.is_default)
+    return instruments
+
+
+def get_instrument(canonical_symbol: str) -> InstrumentSpec:
+    normalized = canonical_symbol.strip().upper()
+    try:
+        return _INSTRUMENTS[normalized]
+    except KeyError as error:
+        raise KeyError(f"Unknown instrument: {canonical_symbol}") from error
 
 
 def get_symbol_mapping(canonical_symbol: str) -> SymbolMapping:
