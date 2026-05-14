@@ -24,8 +24,9 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 - 轻量指标注册表和策略插件注册表。
 - 初始策略插件：`trend_price_volume_v1`，已能生成 `trend_continuation` 与 `liquidity_reversal` 标准信号候选。
 - 第一版回测/风控领域模型：订单意图、账户状态、成本估计、风险决策、模拟订单和持仓状态。
+- P4.1 信号级回测闭环：`StrategySignal` 接入 `RiskEngine`，并完成最小无前瞻撮合、交易日志、权益曲线和汇总指标。
 
-下一小步：把 `StrategySignal` 接入第一版回测撮合与 `RiskEngine` 风控评估。
+下一小步：P4.2 完整历史滚动信号扫描器。
 
 ## 核心文档
 
@@ -60,6 +61,7 @@ D:\交易系统
 │   ├── timeframe_profiles.py
 │   ├── backtest
 │   │   ├── __init__.py
+│   │   ├── execution.py
 │   │   └── risk.py
 │   ├── data
 │   │   ├── __init__.py
@@ -82,6 +84,7 @@ D:\交易系统
 │           └── strategy.py
 └── tests
     ├── test_backtest_risk.py
+    ├── test_backtest_execution.py
     ├── test_data_history.py
     ├── test_data_quality.py
     ├── test_data_universe.py

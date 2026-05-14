@@ -1,3 +1,14 @@
+from trading_system.backtest.execution import (
+    BacktestExecutionConfig,
+    BacktestExecutionEngine,
+    BacktestFillResult,
+    BacktestRunResult,
+    BacktestSignalDecision,
+    BacktestSignalInput,
+    BacktestSummary,
+    EquityPoint,
+    SignalOrderAdapter,
+)
 from trading_system.backtest.risk import (
     AccountState,
     CostEstimate,
@@ -12,12 +23,21 @@ from trading_system.backtest.risk import (
 
 __all__ = (
     "AccountState",
+    "BacktestExecutionConfig",
+    "BacktestExecutionEngine",
+    "BacktestFillResult",
+    "BacktestRunResult",
+    "BacktestSignalDecision",
+    "BacktestSignalInput",
+    "BacktestSummary",
     "CostEstimate",
+    "EquityPoint",
     "OrderIntent",
     "PositionState",
     "RiskDecision",
     "RiskEngine",
     "RiskParameters",
+    "SignalOrderAdapter",
     "SimulatedOrder",
     "TradeLogEntry",
 )
