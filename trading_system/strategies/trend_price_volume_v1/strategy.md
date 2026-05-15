@@ -29,6 +29,26 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 
 v1 只使用 confirmed OHLCV K 线。ToD RVOL 正式基线未接入前，量价确认使用滚动成交量基线 fallback；如果 `StrategyContext.features` 提供 `tod_volume_baseline`，则优先使用该基线。
 
+## PA+VPA 策略族映射
+
+三份 PA+VPA 深度研究整合后，项目已形成 `pa_vpa_v1` 自然语言策略体系。当前 `trend_price_volume_v1` 不等于完整 PA+VPA 体系，只是其中两个策略族的第一版可执行子集：
+
+| 当前 setup | PA+VPA 策略族 | 当前实现状态 | 后续优化方向 |
+| --- | --- | --- | --- |
+| `trend_continuation` | 04 `breakout_pullback_continuation` | 已实现第一版 | 继续使用硬趋势门控，补强放量突破、缩量回踩、再启动确认。 |
+| `liquidity_reversal` | 01 `liquidity_sweep_reclaim` | 已实现第一版 | 改为软趋势门控，逆势允许但提高 VPA 阈值、降低风险权重、要求更清晰 CHoCH 或回收确认。 |
+
+尚未代码实现的 PA+VPA 策略族：
+
+- 02 `stopping_volume_retest`
+- 03 `absorption_box_break`
+- 05 `failed_breakout_effort_result`
+- 06 `climax_exhaustion_reversal`
+- 07 `compression_expansion_breakout`
+- 08 `hvn_fvg_rejection_trap`
+
+这些策略先以自然语言规格保存在 `trading_system/strategies/pa_vpa_v1/specs/`，后续按回测优先级逐步实现。
+
 ## Timeframe Profiles
 
 | 组别 | 入场周期 | 结构周期 | 趋势周期 | 用途 | Session 策略 |
@@ -45,6 +65,13 @@ Session Gate 使用 UTC 时间戳转换到 `America/New_York`：
 ## MarketRegime
 
 趋势周期只负责判断市场体制、方向和策略权限，不直接生成入场。
+
+趋势判断不再被视为所有 setup 的统一硬前置条件。它在不同策略族中的角色不同：
+
+- 趋势延续类：硬门控。
+- 流动性扫荡、失败突破、高潮衰竭类：软过滤和风险调节。
+- 吸收、HVN/FVG 拒绝类：环境选择器。
+- 如果趋势指标只是重复价格行为和量价确认已经证明的事实，不额外加门槛。
 
 输出状态：
 
@@ -129,6 +156,10 @@ OB/FVG 首次触碰后只允许当前触发链使用一次，之后标记为 `mi
 
 ### trend_continuation
 
+对应 PA+VPA 策略族：04 `breakout_pullback_continuation`。
+
+趋势判断角色：必要条件 / 硬门控。
+
 触发链：
 
 1. 趋势周期输出 `TREND`，方向为 `LONG` 或 `SHORT`。
@@ -139,7 +170,17 @@ OB/FVG 首次触碰后只允许当前触发链使用一次，之后标记为 `mi
 
 出场以动态追踪为主，不设置固定最终止盈。达到 `1R` 后执行部分止盈，剩余仓位使用 Chandelier Exit。
 
+后续未实现优化：
+
+- 区分“放量突破”和“缩量突破”。
+- 回踩段需要明确缩量、窄幅、不能吞回突破中点。
+- 再启动 K 需要恢复量能，且不能出现高量低结果。
+
 ### liquidity_reversal
+
+对应 PA+VPA 策略族：01 `liquidity_sweep_reclaim`。
+
+趋势判断角色：软过滤 / 反转豁免。慢趋势不应直接否决扫荡反转；逆势时应提高量价阈值、缩小仓位，并要求更清晰的回收或 CHoCH。
 
 触发链：
 
@@ -150,6 +191,12 @@ OB/FVG 首次触碰后只允许当前触发链使用一次，之后标记为 `mi
 5. 风控层确认对侧流动性目标扣除成本后至少 `1.5R`，否则拒单。
 
 止损使用结构止损，目标优先参考对侧流动性池。
+
+后续未实现优化：
+
+- 逆势扫荡需要更高 RVOL / Volume Z-Score 阈值。
+- 加入二次缩量测试作为更高质量确认。
+- 将趋势状态写入 `explanation_payload.trend_gate_role`，供回测按硬门控/软门控分层统计。
 
 ## Risk Defaults
 

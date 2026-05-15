@@ -23,6 +23,7 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 - 市场体制基础指标：True Range、Kaufman ER、CHOP、EMA、ATR、ADX/DMI、TTM Squeeze、regime 分类。
 - 轻量指标注册表和策略插件注册表。
 - 初始策略插件：`trend_price_volume_v1`，已能生成 `trend_continuation` 与 `liquidity_reversal` 标准信号候选。
+- PA+VPA 多策略族蓝图 v1：已基于三份研究文档去重为 8 个自然语言策略规格，当前代码插件覆盖其中 01/04 的早期子集。
 - 第一版回测/风控领域模型：订单意图、账户状态、成本估计、风险决策、模拟订单和持仓状态。
 - P4.1 信号级回测闭环：`StrategySignal` 接入 `RiskEngine`，并完成最小无前瞻撮合、交易日志、权益曲线和汇总指标。
 
@@ -40,6 +41,8 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 具体策略文档放在各自策略目录中，例如：
 
 - `trading_system/strategies/trend_price_volume_v1/strategy.md`
+- `trading_system/strategies/pa_vpa_v1/README.md`
+- `trading_system/strategies/pa_vpa_v1/specs/`
 
 阶段完成后的状态更新主要写入 `项目总规划.md`。只有策略系统规则变化才更新 `策略规格.md`，具体策略变化优先更新对应策略目录的 `strategy.md`。
 
@@ -77,6 +80,18 @@ D:\交易系统
 │       ├── __init__.py
 │       ├── base.py
 │       ├── registry.py
+│       ├── pa_vpa_v1
+│       │   ├── README.md
+│       │   ├── strategy_map.md
+│       │   └── specs
+│       │       ├── 01_liquidity_sweep_reclaim.md
+│       │       ├── 02_stopping_volume_retest.md
+│       │       ├── 03_absorption_box_break.md
+│       │       ├── 04_breakout_pullback_continuation.md
+│       │       ├── 05_failed_breakout_effort_result.md
+│       │       ├── 06_climax_exhaustion_reversal.md
+│       │       ├── 07_compression_expansion_breakout.md
+│       │       └── 08_hvn_fvg_rejection_trap.md
 │       └── trend_price_volume_v1
 │           ├── __init__.py
 │           ├── features.py
