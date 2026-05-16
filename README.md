@@ -26,8 +26,9 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 - PA+VPA 多策略族蓝图 v1：已基于三份研究文档去重为 8 个自然语言策略规格，当前代码插件覆盖其中 01/04 的早期子集。
 - 第一版回测/风控领域模型：订单意图、账户状态、成本估计、风险决策、模拟订单和持仓状态。
 - P4.1 信号级回测闭环：`StrategySignal` 接入 `RiskEngine`，并完成最小无前瞻撮合、交易日志、权益曲线和汇总指标。
+- P4.2 完整历史滚动信号扫描器 v1：按多标的、多周期滚动构建 `StrategyContext`，接入 P4.1 执行层，并输出 `strategy_family` / `setup_type` 分层统计。
 
-下一小步：P4.2 完整历史滚动信号扫描器。
+下一小步：P4.3 高级出场。
 
 ## 核心文档
 
@@ -65,7 +66,8 @@ D:\交易系统
 │   ├── backtest
 │   │   ├── __init__.py
 │   │   ├── execution.py
-│   │   └── risk.py
+│   │   ├── risk.py
+│   │   └── scanner.py
 │   ├── data
 │   │   ├── __init__.py
 │   │   ├── history.py
@@ -99,6 +101,7 @@ D:\交易系统
 │           └── strategy.py
 └── tests
     ├── test_backtest_risk.py
+    ├── test_backtest_scanner.py
     ├── test_backtest_execution.py
     ├── test_data_history.py
     ├── test_data_quality.py
@@ -125,6 +128,7 @@ D:\交易系统
 | `trading_system/timeframe_profiles.py` | 三周期配置 | 定义 A/B/C 三类入场、结构、趋势周期组合。 |
 | `trading_system/backtest/risk.py` | 风控模型 | 定义订单意图、账户状态、成本估计、风控决策和持仓领域模型。 |
 | `trading_system/backtest/execution.py` | 回测撮合执行 | 把策略信号接入风控，完成最小模拟撮合、交易日志和权益曲线。 |
+| `trading_system/backtest/scanner.py` | 历史滚动扫描器 | 从历史 K 线滚动构建策略上下文，生成信号，调用回测执行层并按策略族分层统计。 |
 | `trading_system/data/history.py` | 历史行情仓库 | 提供内存版和 DuckDB 版 K 线存储、查询和下载状态管理。 |
 | `trading_system/data/okx_cli.py` | OKX 行情适配器 | 通过 OKX CLI 获取公开 ticker、K 线和 instruments。 |
 | `trading_system/data/quality.py` | 数据质量检查 | 检查空数据、缺口、重复、未确认 K 线、OHLC 异常和负成交量。 |

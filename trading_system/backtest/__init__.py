@@ -9,6 +9,15 @@ from trading_system.backtest.execution import (
     EquityPoint,
     SignalOrderAdapter,
 )
+from trading_system.backtest.scanner import (
+    BacktestProfileScan,
+    BacktestRollingScanner,
+    BacktestScanConfig,
+    BacktestScanGroupSummary,
+    BacktestScanResult,
+    BacktestScanTarget,
+    infer_strategy_family,
+)
 from trading_system.backtest.risk import (
     AccountState,
     CostEstimate,
@@ -26,7 +35,13 @@ __all__ = (
     "BacktestExecutionConfig",
     "BacktestExecutionEngine",
     "BacktestFillResult",
+    "BacktestProfileScan",
     "BacktestRunResult",
+    "BacktestRollingScanner",
+    "BacktestScanConfig",
+    "BacktestScanGroupSummary",
+    "BacktestScanResult",
+    "BacktestScanTarget",
     "BacktestSignalDecision",
     "BacktestSignalInput",
     "BacktestSummary",
@@ -40,4 +55,5 @@ __all__ = (
     "SignalOrderAdapter",
     "SimulatedOrder",
     "TradeLogEntry",
+    "infer_strategy_family",
 )
