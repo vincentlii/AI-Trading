@@ -27,8 +27,9 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 - 第一版回测/风控领域模型：订单意图、账户状态、成本估计、风险决策、模拟订单和持仓状态。
 - P4.1 信号级回测闭环：`StrategySignal` 接入 `RiskEngine`，并完成最小无前瞻撮合、交易日志、权益曲线和汇总指标。
 - P4.2 完整历史滚动信号扫描器 v1：按多标的、多周期滚动构建 `StrategyContext`，接入 P4.1 执行层，并输出 `strategy_family` / `setup_type` 分层统计。
+- P4.3 高级出场模型 v1：支持 1R 减仓、真实盈亏平衡、Chandelier Exit、时间止损和结构化出场事件。
 
-下一小步：P4.3 高级出场。
+下一小步：P4.4，先只围绕 BTC/ETH 做三周期 A/B/C 批量回测、指标排名和成本淘汰规则。
 
 ## 核心文档
 
@@ -127,7 +128,7 @@ D:\交易系统
 | `scripts/` | 脚本目录 | 放手动运行的工具脚本，例如下载行情、检查数据质量和 OKX 冒烟测试。 |
 | `trading_system/timeframe_profiles.py` | 三周期配置 | 定义 A/B/C 三类入场、结构、趋势周期组合。 |
 | `trading_system/backtest/risk.py` | 风控模型 | 定义订单意图、账户状态、成本估计、风控决策和持仓领域模型。 |
-| `trading_system/backtest/execution.py` | 回测撮合执行 | 把策略信号接入风控，完成最小模拟撮合、交易日志和权益曲线。 |
+| `trading_system/backtest/execution.py` | 回测撮合执行 | 把策略信号接入风控，完成模拟撮合、交易日志、权益曲线和高级出场事件。 |
 | `trading_system/backtest/scanner.py` | 历史滚动扫描器 | 从历史 K 线滚动构建策略上下文，生成信号，调用回测执行层并按策略族分层统计。 |
 | `trading_system/data/history.py` | 历史行情仓库 | 提供内存版和 DuckDB 版 K 线存储、查询和下载状态管理。 |
 | `trading_system/data/okx_cli.py` | OKX 行情适配器 | 通过 OKX CLI 获取公开 ticker、K 线和 instruments。 |

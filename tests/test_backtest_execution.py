@@ -196,6 +196,105 @@ class BacktestExecutionTests(unittest.TestCase):
         self.assertEqual(result.summary.expectancy_per_trade, 247.5)
         self.assertGreater(result.summary.max_drawdown, 0.0)
 
+    def test_advanced_exit_partials_at_1r_then_stops_remaining_at_true_breakeven(self):
+        result = self.engine(enable_advanced_exits=True, fee_rate=0.001).run(
+            (
+                BacktestSignalInput(
+                    _signal(target_hint={"target_price": 120.0}),
+                    (
+                        _candle(1, 100.0, 106.0, 101.0, 105.0),
+                        _candle(2, 105.0, 106.0, 100.1, 101.0),
+                    ),
+                ),
+            )
+        )
+
+        fill = result.fills[0]
+
+        self.assertEqual(fill.exit_reason, "breakeven_stop")
+        self.assertEqual([event.event_type for event in fill.exit_events], ["partial_take_profit", "breakeven_stop"])
+        self.assertEqual(fill.exit_events[0].price, 105.0)
+        self.assertGreater(fill.exit_events[1].price, 100.0)
+        self.assertAlmostEqual(fill.exit_events[0].quantity, fill.order.quantity * 0.5)
+        self.assertAlmostEqual(fill.exit_events[1].quantity, fill.order.quantity * 0.5)
+        self.assertEqual(fill.trade_log.exit_events, fill.exit_events)
+
+    def test_advanced_exit_uses_chandelier_for_remaining_position_after_partial(self):
+        result = self.engine(
+            enable_advanced_exits=True,
+            chandelier_period=2,
+            chandelier_atr_multiple=1.0,
+        ).run(
+            (
+                BacktestSignalInput(
+                    _signal(target_hint={"target_price": 120.0}),
+                    (
+                        _candle(1, 100.0, 106.0, 101.0, 105.0),
+                        _candle(2, 105.0, 108.0, 104.0, 107.0),
+                        _candle(3, 107.0, 107.5, 104.5, 105.0),
+                    ),
+                ),
+            )
+        )
+
+        fill = result.fills[0]
+
+        self.assertEqual(fill.exit_reason, "chandelier_exit")
+        self.assertEqual([event.event_type for event in fill.exit_events], ["partial_take_profit", "chandelier_exit"])
+        self.assertEqual(fill.exit_events[1].price, 105.0)
+
+    def test_advanced_time_stop_exits_remaining_after_partial(self):
+        result = self.engine(enable_advanced_exits=True, max_holding_bars=2).run(
+            (
+                BacktestSignalInput(
+                    _signal(target_hint={"target_price": 120.0}),
+                    (
+                        _candle(1, 100.0, 106.0, 101.0, 105.0),
+                        _candle(2, 105.0, 107.0, 101.0, 106.0),
+                        _candle(3, 106.0, 120.0, 90.0, 100.0),
+                    ),
+                ),
+            )
+        )
+
+        fill = result.fills[0]
+
+        self.assertEqual(fill.exit_reason, "time_exit")
+        self.assertEqual([event.event_type for event in fill.exit_events], ["partial_take_profit", "time_exit"])
+        self.assertEqual(fill.exit_price, 106.0)
+        self.assertEqual(fill.holding_bars, 2)
+
+    def test_advanced_short_exits_are_symmetric(self):
+        short = _signal(
+            direction="short",
+            invalidation_level=105.0,
+            target_hint={"target_price": 80.0},
+        )
+
+        result = self.engine(
+            enable_advanced_exits=True,
+            chandelier_period=2,
+            chandelier_atr_multiple=1.0,
+        ).run(
+            (
+                BacktestSignalInput(
+                    short,
+                    (
+                        _candle(1, 100.0, 100.5, 94.0, 95.0),
+                        _candle(2, 95.0, 96.0, 92.0, 93.0),
+                        _candle(3, 93.0, 95.5, 92.5, 95.0),
+                    ),
+                ),
+            )
+        )
+
+        fill = result.fills[0]
+
+        self.assertEqual(fill.exit_reason, "chandelier_exit")
+        self.assertEqual([event.event_type for event in fill.exit_events], ["partial_take_profit", "chandelier_exit"])
+        self.assertEqual(fill.exit_events[0].price, 95.0)
+        self.assertEqual(fill.exit_events[1].price, 95.0)
+
 
 if __name__ == "__main__":
     unittest.main()

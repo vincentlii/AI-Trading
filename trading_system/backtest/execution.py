@@ -26,6 +26,12 @@ class BacktestExecutionConfig:
     funding: float = 0.0
     conservative_same_bar: bool = True
     point_value: float = 1.0
+    enable_advanced_exits: bool = False
+    partial_take_profit_r: float = 1.0
+    partial_take_profit_pct: float = 0.5
+    move_stop_to_true_breakeven: bool = True
+    chandelier_period: int = 22
+    chandelier_atr_multiple: float = 4.0
 
 
 @dataclass(frozen=True)
@@ -44,6 +50,18 @@ class BacktestSignalDecision:
 
 
 @dataclass(frozen=True)
+class BacktestExitEvent:
+    timestamp_ms: int | None
+    bar_index: int
+    event_type: str
+    price: float
+    quantity: float
+    gross_pnl: float
+    cost_estimate: CostEstimate
+    net_pnl: float
+
+
+@dataclass(frozen=True)
 class BacktestFillResult:
     order: SimulatedOrder
     decision: RiskDecision
@@ -58,6 +76,7 @@ class BacktestFillResult:
     holding_bars: int
     cost_estimate: CostEstimate
     trade_log: TradeLogEntry
+    exit_events: tuple[BacktestExitEvent, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -199,6 +218,7 @@ class BacktestExecutionEngine:
                 risk_decision=risk_decision,
                 execution_candles=item.execution_candles,
                 config=self.config,
+                atr=atr,
             )
             fills.append(fill)
             equity += fill.net_pnl
@@ -231,6 +251,7 @@ def _simulate_fill(
     risk_decision: RiskDecision,
     execution_candles: Sequence[object],
     config: BacktestExecutionConfig,
+    atr: float,
 ) -> BacktestFillResult:
     order = risk_decision.approved_order
     if order is None:
@@ -241,6 +262,28 @@ def _simulate_fill(
     if not candles:
         raise ValueError("execution_candles must not be empty")
 
+    if config.enable_advanced_exits:
+        return _simulate_advanced_fill(
+            risk_decision=risk_decision,
+            candles=candles,
+            config=config,
+            atr=atr,
+        )
+
+    return _simulate_simple_fill(risk_decision=risk_decision, candles=candles, config=config)
+
+
+def _simulate_simple_fill(
+    *,
+    risk_decision: RiskDecision,
+    candles: Sequence[object],
+    config: BacktestExecutionConfig,
+) -> BacktestFillResult:
+    order = risk_decision.approved_order
+    if order is None:
+        raise ValueError("risk_decision must contain an approved order")
+
+    intent = order.intent
     exit_candle = candles[-1]
     exit_price = float(getattr(exit_candle, "close"))
     exit_reason = "time_exit"
@@ -265,8 +308,17 @@ def _simulate_fill(
         holding_bars = index
         break
 
-    gross_pnl = _gross_pnl(intent, exit_price, order.quantity)
-    cost_estimate = _estimate_cost(intent.entry_price, exit_price, order.quantity, config)
+    exit_event = _build_exit_event(
+        intent=intent,
+        candle=exit_candle,
+        bar_index=holding_bars,
+        event_type=exit_reason,
+        price=exit_price,
+        quantity=order.quantity,
+        config=config,
+    )
+    gross_pnl = exit_event.gross_pnl
+    cost_estimate = exit_event.cost_estimate
     net_pnl = gross_pnl - cost_estimate.total
     r_multiple = 0.0 if order.risk_amount <= 0 else net_pnl / order.risk_amount
     trade_log = TradeLogEntry(
@@ -275,6 +327,7 @@ def _simulate_fill(
         exit_reason=exit_reason,
         pnl=net_pnl,
         r_multiple=r_multiple,
+        exit_events=(exit_event,),
     )
     return BacktestFillResult(
         order=order,
@@ -290,6 +343,231 @@ def _simulate_fill(
         holding_bars=holding_bars,
         cost_estimate=cost_estimate,
         trade_log=trade_log,
+        exit_events=(exit_event,),
+    )
+
+
+def _simulate_advanced_fill(
+    *,
+    risk_decision: RiskDecision,
+    candles: Sequence[object],
+    config: BacktestExecutionConfig,
+    atr: float,
+) -> BacktestFillResult:
+    order = risk_decision.approved_order
+    if order is None:
+        raise ValueError("risk_decision must contain an approved order")
+
+    intent = order.intent
+    events: list[BacktestExitEvent] = []
+    seen_candles: list[object] = []
+    remaining_quantity = order.quantity
+    current_stop = intent.stop_loss
+    current_stop_reason = "stop_loss"
+    partial_done = False
+    partial_price = _r_price(intent, config.partial_take_profit_r)
+    partial_pct = min(max(config.partial_take_profit_pct, 0.0), 1.0)
+
+    for index, candle in enumerate(candles, start=1):
+        high = float(getattr(candle, "high"))
+        low = float(getattr(candle, "low"))
+        stop_hit = _stop_hit(intent.direction, current_stop, high=high, low=low)
+        target_hit = _target_hit(intent, high=high, low=low)
+        partial_hit = (
+            not partial_done
+            and partial_pct > 0.0
+            and remaining_quantity > 0.0
+            and _price_hit(intent.direction, partial_price, high=high, low=low)
+        )
+
+        if stop_hit and (target_hit or partial_hit) and config.conservative_same_bar:
+            events.append(
+                _build_exit_event(
+                    intent=intent,
+                    candle=candle,
+                    bar_index=index,
+                    event_type=current_stop_reason,
+                    price=current_stop,
+                    quantity=remaining_quantity,
+                    config=config,
+                )
+            )
+            remaining_quantity = 0.0
+            break
+        if stop_hit:
+            events.append(
+                _build_exit_event(
+                    intent=intent,
+                    candle=candle,
+                    bar_index=index,
+                    event_type=current_stop_reason,
+                    price=current_stop,
+                    quantity=remaining_quantity,
+                    config=config,
+                )
+            )
+            remaining_quantity = 0.0
+            break
+
+        if partial_hit:
+            partial_quantity = min(remaining_quantity, order.quantity * partial_pct)
+            events.append(
+                _build_exit_event(
+                    intent=intent,
+                    candle=candle,
+                    bar_index=index,
+                    event_type="partial_take_profit",
+                    price=partial_price,
+                    quantity=partial_quantity,
+                    config=config,
+                )
+            )
+            remaining_quantity -= partial_quantity
+            partial_done = True
+            if remaining_quantity <= 0.0:
+                break
+            if config.move_stop_to_true_breakeven:
+                current_stop = _true_breakeven_stop(
+                    intent=intent,
+                    remaining_quantity=remaining_quantity,
+                    config=config,
+                )
+                current_stop_reason = "breakeven_stop"
+
+            target_after_partial = _target_hit(intent, high=high, low=low)
+            if target_after_partial and intent.target_price is not None:
+                events.append(
+                    _build_exit_event(
+                        intent=intent,
+                        candle=candle,
+                        bar_index=index,
+                        event_type="target",
+                        price=intent.target_price,
+                        quantity=remaining_quantity,
+                        config=config,
+                    )
+                )
+                remaining_quantity = 0.0
+                break
+        elif target_hit and intent.target_price is not None:
+            events.append(
+                _build_exit_event(
+                    intent=intent,
+                    candle=candle,
+                    bar_index=index,
+                    event_type="target",
+                    price=intent.target_price,
+                    quantity=remaining_quantity,
+                    config=config,
+                )
+            )
+            remaining_quantity = 0.0
+            break
+
+        seen_candles.append(candle)
+        if partial_done and remaining_quantity > 0.0:
+            candidate_stop = _chandelier_stop(intent.direction, seen_candles, atr=atr, config=config)
+            tightened_stop = _tighten_stop(intent.direction, current_stop, candidate_stop)
+            if tightened_stop != current_stop:
+                current_stop = tightened_stop
+                current_stop_reason = "chandelier_exit"
+
+    if remaining_quantity > 0.0:
+        exit_candle = candles[-1]
+        events.append(
+            _build_exit_event(
+                intent=intent,
+                candle=exit_candle,
+                bar_index=len(candles),
+                event_type="time_exit",
+                price=float(getattr(exit_candle, "close")),
+                quantity=remaining_quantity,
+                config=config,
+            )
+        )
+
+    return _build_fill_result(
+        risk_decision=risk_decision,
+        candles=candles,
+        events=tuple(events),
+    )
+
+
+def _build_fill_result(
+    *,
+    risk_decision: RiskDecision,
+    candles: Sequence[object],
+    events: tuple[BacktestExitEvent, ...],
+) -> BacktestFillResult:
+    order = risk_decision.approved_order
+    if order is None:
+        raise ValueError("risk_decision must contain an approved order")
+    if not events:
+        raise ValueError("events must not be empty")
+
+    final_event = events[-1]
+    gross_pnl = sum(event.gross_pnl for event in events)
+    cost_estimate = _sum_cost_estimates(event.cost_estimate for event in events)
+    net_pnl = sum(event.net_pnl for event in events)
+    r_multiple = 0.0 if order.risk_amount <= 0 else net_pnl / order.risk_amount
+    trade_log = TradeLogEntry(
+        order=order,
+        decision=risk_decision,
+        exit_reason=final_event.event_type,
+        pnl=net_pnl,
+        r_multiple=r_multiple,
+        exit_events=events,
+    )
+    return BacktestFillResult(
+        order=order,
+        decision=risk_decision,
+        entry_timestamp_ms=_optional_timestamp(candles[0]),
+        exit_timestamp_ms=final_event.timestamp_ms,
+        entry_price=order.intent.entry_price,
+        exit_price=final_event.price,
+        exit_reason=final_event.event_type,
+        gross_pnl=gross_pnl,
+        net_pnl=net_pnl,
+        r_multiple=r_multiple,
+        holding_bars=final_event.bar_index,
+        cost_estimate=cost_estimate,
+        trade_log=trade_log,
+        exit_events=events,
+    )
+
+
+def _build_exit_event(
+    *,
+    intent: OrderIntent,
+    candle: object,
+    bar_index: int,
+    event_type: str,
+    price: float,
+    quantity: float,
+    config: BacktestExecutionConfig,
+) -> BacktestExitEvent:
+    gross_pnl = _gross_pnl(intent, price, quantity)
+    cost_estimate = _estimate_cost(intent.entry_price, price, quantity, config)
+    net_pnl = gross_pnl - cost_estimate.total
+    return BacktestExitEvent(
+        timestamp_ms=_optional_timestamp(candle),
+        bar_index=bar_index,
+        event_type=event_type,
+        price=price,
+        quantity=quantity,
+        gross_pnl=gross_pnl,
+        cost_estimate=cost_estimate,
+        net_pnl=net_pnl,
+    )
+
+
+def _sum_cost_estimates(costs: Sequence[CostEstimate]) -> CostEstimate:
+    costs = tuple(costs)
+    return CostEstimate(
+        fees=sum(cost.fees for cost in costs),
+        spread=sum(cost.spread for cost in costs),
+        expected_slippage=sum(cost.expected_slippage for cost in costs),
+        funding=sum(cost.funding for cost in costs),
     )
 
 
@@ -299,6 +577,80 @@ def _exit_hits(intent: OrderIntent, *, high: float, low: float) -> tuple[bool, b
     if intent.direction == "SHORT":
         return high >= intent.stop_loss, intent.target_price is not None and low <= intent.target_price
     return False, False
+
+
+def _stop_hit(direction: str, stop_price: float, *, high: float, low: float) -> bool:
+    if direction == "LONG":
+        return low <= stop_price
+    if direction == "SHORT":
+        return high >= stop_price
+    return False
+
+
+def _target_hit(intent: OrderIntent, *, high: float, low: float) -> bool:
+    if intent.target_price is None:
+        return False
+    return _price_hit(intent.direction, intent.target_price, high=high, low=low)
+
+
+def _price_hit(direction: str, price: float, *, high: float, low: float) -> bool:
+    if direction == "LONG":
+        return high >= price
+    if direction == "SHORT":
+        return low <= price
+    return False
+
+
+def _r_price(intent: OrderIntent, r_multiple: float) -> float:
+    if intent.direction == "LONG":
+        return intent.entry_price + intent.stop_distance * r_multiple
+    if intent.direction == "SHORT":
+        return intent.entry_price - intent.stop_distance * r_multiple
+    raise ValueError(f"Unsupported direction: {intent.direction}")
+
+
+def _true_breakeven_stop(
+    *,
+    intent: OrderIntent,
+    remaining_quantity: float,
+    config: BacktestExecutionConfig,
+) -> float:
+    if remaining_quantity <= 0:
+        raise ValueError("remaining_quantity must be greater than 0")
+
+    costs = _estimate_cost(intent.entry_price, intent.entry_price, remaining_quantity, config)
+    adjustment = costs.total / (remaining_quantity * intent.point_value)
+    if intent.direction == "LONG":
+        return intent.entry_price + adjustment
+    if intent.direction == "SHORT":
+        return intent.entry_price - adjustment
+    raise ValueError(f"Unsupported direction: {intent.direction}")
+
+
+def _chandelier_stop(
+    direction: str,
+    candles: Sequence[object],
+    *,
+    atr: float,
+    config: BacktestExecutionConfig,
+) -> float:
+    period = max(1, config.chandelier_period)
+    window = tuple(candles[-period:])
+    if direction == "LONG":
+        highest_high = max(float(getattr(candle, "high")) for candle in window)
+        return highest_high - atr * config.chandelier_atr_multiple
+    if direction == "SHORT":
+        lowest_low = min(float(getattr(candle, "low")) for candle in window)
+        return lowest_low + atr * config.chandelier_atr_multiple
+    raise ValueError(f"Unsupported direction: {direction}")
+
+
+def _tighten_stop(direction: str, current_stop: float, candidate_stop: float) -> float:
+    if direction == "LONG":
+        return max(current_stop, candidate_stop)
+    if direction == "SHORT":
+        return min(current_stop, candidate_stop)
+    raise ValueError(f"Unsupported direction: {direction}")
 
 
 def _gross_pnl(intent: OrderIntent, exit_price: float, quantity: float) -> float:
@@ -439,6 +791,7 @@ __all__ = (
     "BacktestExecutionConfig",
     "BacktestSignalInput",
     "BacktestSignalDecision",
+    "BacktestExitEvent",
     "BacktestFillResult",
     "EquityPoint",
     "BacktestSummary",

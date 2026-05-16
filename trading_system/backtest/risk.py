@@ -111,6 +111,7 @@ class TradeLogEntry:
     exit_reason: str = ""
     pnl: float = 0.0
     r_multiple: float = 0.0
+    exit_events: tuple[object, ...] = ()
 
 
 class RiskEngine:

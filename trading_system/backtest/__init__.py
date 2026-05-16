@@ -1,6 +1,7 @@
 from trading_system.backtest.execution import (
     BacktestExecutionConfig,
     BacktestExecutionEngine,
+    BacktestExitEvent,
     BacktestFillResult,
     BacktestRunResult,
     BacktestSignalDecision,
@@ -34,6 +35,7 @@ __all__ = (
     "AccountState",
     "BacktestExecutionConfig",
     "BacktestExecutionEngine",
+    "BacktestExitEvent",
     "BacktestFillResult",
     "BacktestProfileScan",
     "BacktestRunResult",
