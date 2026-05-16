@@ -114,6 +114,29 @@ D:\交易系统
     └── test_timeframe_profiles.py
 ```
 
+| 文件/目录 | 中文名 | 用途 |
+| --- | --- | --- |
+| `README.md` | 项目入口说明 | 介绍项目状态、目录结构、安装依赖和常用命令。 |
+| `项目总规划.md` | 项目总规划 | 记录 P0-P8 路线、当前完成度、下一步和未实现功能回补清单。 |
+| `策略规格.md` | 策略系统总规范 | 定义策略插件架构、标准信号、三周期分层、风控边界和 PA+VPA 策略族。 |
+| `代理协作流程.md` | 代理协作规则 | 记录主线程、sub-agent、模型、写入范围和验收规则。 |
+| `requirements.txt` | Python 依赖清单 | 记录项目本地 `.venv` 需要安装的依赖。 |
+| `scripts/` | 脚本目录 | 放手动运行的工具脚本，例如下载行情、检查数据质量和 OKX 冒烟测试。 |
+| `trading_system/timeframe_profiles.py` | 三周期配置 | 定义 A/B/C 三类入场、结构、趋势周期组合。 |
+| `trading_system/backtest/risk.py` | 风控模型 | 定义订单意图、账户状态、成本估计、风控决策和持仓领域模型。 |
+| `trading_system/backtest/execution.py` | 回测撮合执行 | 把策略信号接入风控，完成最小模拟撮合、交易日志和权益曲线。 |
+| `trading_system/data/history.py` | 历史行情仓库 | 提供内存版和 DuckDB 版 K 线存储、查询和下载状态管理。 |
+| `trading_system/data/okx_cli.py` | OKX 行情适配器 | 通过 OKX CLI 获取公开 ticker、K 线和 instruments。 |
+| `trading_system/data/quality.py` | 数据质量检查 | 检查空数据、缺口、重复、未确认 K 线、OHLC 异常和负成交量。 |
+| `trading_system/data/universe.py` | 资产宇宙 | 定义默认标的、交易所映射、资产类别和未来 Nasdaq 扩展入口。 |
+| `trading_system/indicators/registry.py` | 指标注册表 | 暴露可复用指标元数据，供策略声明依赖。 |
+| `trading_system/indicators/regime.py` | 市场体制指标 | 实现趋势、波动、效率和震荡相关基础指标。 |
+| `trading_system/strategies/base.py` | 策略基础接口 | 定义 `Strategy`、`StrategyMetadata`、`StrategyContext` 和 `StrategySignal`。 |
+| `trading_system/strategies/registry.py` | 策略注册表 | 管理策略注册、查询和列表输出。 |
+| `trading_system/strategies/pa_vpa_v1/` | PA+VPA 策略蓝图 | 存放 8 个去重后的自然语言策略族规格，不直接执行。 |
+| `trading_system/strategies/trend_price_volume_v1/` | 初始可执行策略 | 当前第一个策略插件，实现 `trend_continuation` 和 `liquidity_reversal` 早期版本。 |
+| `tests/` | 测试目录 | 存放数据、指标、策略、风控和回测执行相关单元测试。 |
+
 ## 安装依赖
 
 项目依赖安装到本地 `.venv`，不建议安装到全局 Python：
