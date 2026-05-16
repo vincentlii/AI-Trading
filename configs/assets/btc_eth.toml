@@ -1,0 +1,15 @@
+universe = "btc_eth"
+primary_venue = "okx"
+validation_venues = ["binance"]
+
+[[targets]]
+canonical_symbol = "BTC/USDT"
+inst_id = "BTC-USDT"
+venue = "okx"
+inst_type = "SPOT"
+
+[[targets]]
+canonical_symbol = "ETH/USDT"
+inst_id = "ETH-USDT"
+venue = "okx"
+inst_type = "SPOT"

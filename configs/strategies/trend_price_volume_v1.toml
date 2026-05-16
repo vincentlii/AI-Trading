@@ -1,0 +1,4 @@
+name = "trend_price_volume"
+version = "v1"
+enabled = true
+enabled_setups = ["trend_continuation", "liquidity_reversal"]

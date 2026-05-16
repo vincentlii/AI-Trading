@@ -1,0 +1,6 @@
+name = "crypto_spot_research"
+description = "Research-only crypto spot cost assumptions. These values are not live exchange fee quotes."
+fee_rate = 0.001
+spread = 0.0
+slippage = 0.0
+funding = 0.0

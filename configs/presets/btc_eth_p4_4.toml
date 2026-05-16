@@ -1,0 +1,26 @@
+config_version = "btc_eth_p4_4_v1"
+
+[include]
+assets = "configs/assets/btc_eth.toml"
+risk = "configs/risk/default.toml"
+costs = "configs/costs/crypto_spot_research.toml"
+strategy = "configs/strategies/trend_price_volume_v1.toml"
+
+[scan]
+profile_keys = ["B", "C", "A"]
+
+[execution]
+initial_equity = 100000.0
+max_holding_bars = 20
+conservative_same_bar = true
+point_value = 1.0
+enable_advanced_exits = true
+partial_take_profit_r = 1.0
+partial_take_profit_pct = 0.5
+move_stop_to_true_breakeven = true
+chandelier_period = 22
+chandelier_atr_multiple = 4.0
+
+[ranking]
+fast_profile_fee_reject_threshold = 0.25
+min_trades_for_primary = 30
