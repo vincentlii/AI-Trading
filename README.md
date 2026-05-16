@@ -15,7 +15,7 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 - Git 版本控制与本地 `.venv` 依赖环境。
 - 三周期回测分层：A 日内快节奏、B 标准波段、C 慢趋势。
 - OKX 公开行情适配器：ticker、candles、instruments。
-- 资产宇宙：OKX 主数据源，Binance 作为 BTC/ETH 校验源预留。
+- 资产宇宙：OKX 作为第一版加密场内执行/回测源，Binance 作为 BTC/ETH 校验源预留。
 - 可扩展标的物骨架：`InstrumentSpec`、`VenueSymbol`，并预留 `INDEX` 资产类别。
 - DuckDB 历史 K 线仓库：按 `venue + inst_type + inst_id + bar + ts_ms` 隔离。
 - OKX 历史 K 线下载器 v1：小批量下载 confirmed K 线并写入 DuckDB。
@@ -194,11 +194,14 @@ OKX 公开行情冒烟测试：
 
 ## 数据边界
 
-- OKX 是第一版主数据源。
-- Binance 只作为 BTC/ETH 校验源预留，不参与主回测成交价格。
+- BTC/ETH 仍以 OKX 作为第一版主执行/回测价格源，Binance 作为校验源预留。
+- 黄金和纳指不沿用加密资产的数据源模式，后续采用“传统金融主参考源 + 场内执行源 + 偏差校验机制 + 宏观/时段背景源”。
+- `XAUT/USDT` 当前只是过渡研究标的和加密场内映射/执行源，不是全球黄金价格的唯一事实源。
+- 黄金参考体系优先评估 COMEX `GC/MGC`、XAU/USD 和 LBMA Gold Price。
+- 纳指参考体系优先评估 CME `NQ/MNQ`、Nasdaq-100 Index / `NDX` 和 `QQQ`。
 - 不混合不同交易所 K 线生成“综合价格”。
-- `XAUTUSDT` 是否可作为 Binance 校验源必须用 exchangeInfo 动态验证。
-- 纳斯达克指数等 `INDEX` 标的需要未来独立数据源 adapter，不进入 OKX 默认下载清单。
+- `XAUTUSDT` 是否可作为 Binance 校验源必须用 exchangeInfo 动态验证；XAUT 插针但外部黄金参考源未同步时，应标记为场内流动性异常。
+- 纳斯达克指数等 `INDEX` 标的需要未来独立数据源 adapter，不进入 OKX 默认下载清单，也不使用低质量指数币或未授权 CFD 作为主参考源。
 - API key、secret key、passphrase 不写入仓库，也不在聊天中收集。
 
 ## 风险声明
