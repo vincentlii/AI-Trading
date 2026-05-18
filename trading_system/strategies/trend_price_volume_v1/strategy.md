@@ -27,7 +27,9 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 - 已支持 `trend_continuation` 与 `liquidity_reversal` 两个第一版剧本。
 - 风控、仓位、拒单和模拟订单仍由 P4 的 `RiskEngine` 和回测撮合层处理。
 
-v1 只使用 confirmed OHLCV K 线。ToD RVOL 正式基线未接入前，量价确认使用滚动成交量基线 fallback；如果 `StrategyContext.features` 提供 `tod_volume_baseline`，则优先使用该基线。
+v1 只使用 confirmed OHLCV K 线。BTC/ETH 量价统计优先使用 quote volume，缺失时回退到原始 volume。ToD RVOL 正式基线未接入前，量价确认使用滚动成交量基线 fallback；如果 `StrategyContext.features` 提供 `tod_volume_baseline`，则优先使用该基线。
+
+`StrategyContext.features["strategy_parameters"]` 可以覆盖第一版默认阈值，但正式参数调整必须走配置 proposal、回测验证和人工确认流程。
 
 ## PA+VPA 策略族映射
 
@@ -35,8 +37,8 @@ v1 只使用 confirmed OHLCV K 线。ToD RVOL 正式基线未接入前，量价�
 
 | 当前 setup | PA+VPA 策略族 | 当前实现状态 | 后续优化方向 |
 | --- | --- | --- | --- |
-| `trend_continuation` | 04 `breakout_pullback_continuation` | 已实现第一版 | 继续使用硬趋势门控，补强放量突破、缩量回踩、再启动确认。 |
-| `liquidity_reversal` | 01 `liquidity_sweep_reclaim` | 已实现第一版 | 改为软趋势门控，逆势允许但提高 VPA 阈值、降低风险权重、要求更清晰 CHoCH 或回收确认。 |
+| `trend_continuation` | 04 `breakout_pullback_continuation` | OHLCV v1 已实现 | 已包含硬趋势门控、ATR buffer、实体占比、收盘位置、放量突破、缩量回踩、回踩中位保护和再启动确认。 |
+| `liquidity_reversal` | 01 `liquidity_sweep_reclaim` | OHLCV v1 已实现 | 已包含软趋势背景、扫荡收回、影线比例、CHoCH、逆势更高 RVOL 阈值和 1.5R 最低目标。 |
 
 尚未代码实现的 PA+VPA 策略族：
 
@@ -172,9 +174,9 @@ OB/FVG 首次触碰后只允许当前触发链使用一次，之后标记为 `mi
 
 后续未实现优化：
 
-- 区分“放量突破”和“缩量突破”。
-- 回踩段需要明确缩量、窄幅、不能吞回突破中点。
-- 再启动 K 需要恢复量能，且不能出现高量低结果。
+- 接入 OB/FVG/AVWAP/Session VWAP，替代当前仅用结构位和突破中点的简化判断。
+- 增加高量低结果、异常量、盘口吸收和 CVD/OI 分歧过滤。
+- 按 BTC/ETH session 和流动性差异配置 RVOL 阈值，尤其处理低流动性时段假突破。
 
 ### liquidity_reversal
 
@@ -194,9 +196,9 @@ OB/FVG 首次触碰后只允许当前触发链使用一次，之后标记为 `mi
 
 后续未实现优化：
 
-- 逆势扫荡需要更高 RVOL / Volume Z-Score 阈值。
-- 加入二次缩量测试作为更高质量确认。
-- 将趋势状态写入 `explanation_payload.trend_gate_role`，供回测按硬门控/软门控分层统计。
+- 接入 CVD、taker imbalance、OI 和盘口吸收，减少纯 OHLCV 对“假扫荡”的误判。
+- 加入二次缩量测试、FVG/VWAP retest 和更细的流动性池识别。
+- 按 BTC/ETH 差异配置逆势阈值、风险降权和 session 过滤。
 
 ## Risk Defaults
 

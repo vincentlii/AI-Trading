@@ -23,7 +23,7 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 - 市场体制基础指标：True Range、Kaufman ER、CHOP、EMA、ATR、ADX/DMI、TTM Squeeze、regime 分类。
 - 轻量指标注册表和策略插件注册表。
 - 初始策略插件：`trend_price_volume_v1`，已能生成 `trend_continuation` 与 `liquidity_reversal` 标准信号候选。
-- PA+VPA 多策略族蓝图 v1：已基于三份研究文档去重为 8 个自然语言策略规格，当前代码插件覆盖其中 01/04 的早期子集。
+- PA+VPA 多策略族蓝图 v1：已基于三份研究文档去重为 8 个自然语言策略规格，当前代码插件已实现其中 01/04 的 BTC/ETH OHLCV v1。
 - 第一版回测/风控领域模型：订单意图、账户状态、成本估计、风险决策、模拟订单和持仓状态。
 - P4.1 信号级回测闭环：`StrategySignal` 接入 `RiskEngine`，并完成最小无前瞻撮合、交易日志、权益曲线和汇总指标。
 - P4.2 完整历史滚动信号扫描器 v1：按多标的、多周期滚动构建 `StrategyContext`，接入 P4.1 执行层，并输出 `strategy_family` / `setup_type` 分层统计。
@@ -161,7 +161,7 @@ D:\交易系统
 | `trading_system/strategies/base.py` | 策略基础接口 | 定义 `Strategy`、`StrategyMetadata`、`StrategyContext` 和 `StrategySignal`。 |
 | `trading_system/strategies/registry.py` | 策略注册表 | 管理策略注册、查询和列表输出。 |
 | `trading_system/strategies/pa_vpa_v1/` | PA+VPA 策略蓝图 | 存放 8 个去重后的自然语言策略族规格，不直接执行。 |
-| `trading_system/strategies/trend_price_volume_v1/` | 初始可执行策略 | 当前第一个策略插件，实现 `trend_continuation` 和 `liquidity_reversal` 早期版本。 |
+| `trading_system/strategies/trend_price_volume_v1/` | 初始可执行策略 | 当前第一个策略插件，实现 04 放量突破回踩续攻和 01 流动性扫荡回收的 OHLCV v1。 |
 | `tests/` | 测试目录 | 存放数据、指标、策略、风控和回测执行相关单元测试。 |
 
 ## 安装依赖

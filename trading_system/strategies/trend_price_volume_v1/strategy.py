@@ -9,6 +9,7 @@ from trading_system.strategies.trend_price_volume_v1.features import (
     confirm_volume_price,
     detect_price_action_setup,
     minimum_reward_to_risk,
+    strategy_parameters_from_context,
 )
 
 
@@ -48,7 +49,8 @@ class TrendPriceVolumeStrategy(Strategy):
         if regime is None:
             return ()
 
-        setup = detect_price_action_setup(structure_candles, entry_candles, regime)
+        parameters = strategy_parameters_from_context(context.features)
+        setup = detect_price_action_setup(structure_candles, entry_candles, regime, parameters)
         if setup is None:
             return ()
 
@@ -71,6 +73,8 @@ class TrendPriceVolumeStrategy(Strategy):
         if setup.setup_type == "liquidity_reversal" and reward_to_risk < 1.5:
             return ()
 
+        strategy_family = str(setup.evidence.get("strategy_family", setup.setup_type))
+        trend_gate_role = setup.evidence.get("trend_gate_role")
         signal = StrategySignal(
             strategy_name=self.metadata.name,
             strategy_version=self.metadata.version,
@@ -94,6 +98,7 @@ class TrendPriceVolumeStrategy(Strategy):
             volume_price_evidence=confirmation.evidence,
             risk_profile={
                 "setup_type": setup.setup_type,
+                "strategy_family": strategy_family,
                 "invalidation_level": setup.invalidation_level,
                 "target_price": setup.target_price,
                 "minimum_reward_to_risk": 1.5 if setup.setup_type == "liquidity_reversal" else None,
@@ -107,6 +112,8 @@ class TrendPriceVolumeStrategy(Strategy):
                 ),
                 "regime_state": regime.state,
                 "setup_type": setup.setup_type,
+                "strategy_family": strategy_family,
+                "trend_gate_role": trend_gate_role,
                 "confirmation_status": confirmation.status,
             },
         )

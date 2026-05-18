@@ -56,28 +56,28 @@ def _bullish_regime_candles(count: int = 230) -> tuple[CandleStub, ...]:
 
 def _trend_continuation_structure() -> tuple[CandleStub, ...]:
     rows = (
-        (100.0, 101.0, 99.0, 100.5),
-        (100.5, 103.0, 100.0, 102.5),
-        (102.5, 105.0, 101.5, 104.5),
-        (104.5, 104.8, 101.0, 102.0),
-        (102.0, 103.2, 100.2, 101.5),
-        (101.5, 104.2, 101.0, 103.8),
-        (103.8, 108.2, 103.2, 107.6),
-        (107.6, 108.0, 105.0, 106.4),
+        (100.0, 101.0, 99.0, 100.5, 100.0),
+        (100.5, 103.0, 100.0, 102.5, 100.0),
+        (102.5, 105.0, 101.5, 104.5, 100.0),
+        (104.5, 104.8, 101.0, 102.0, 100.0),
+        (102.0, 103.2, 100.2, 101.5, 100.0),
+        (101.5, 104.2, 101.0, 103.8, 100.0),
+        (103.8, 110.0, 103.2, 109.4, 260.0),
+        (109.4, 109.8, 107.8, 108.4, 65.0),
     )
-    return tuple(_candle(index, *row, volume=800.0 + index * 10) for index, row in enumerate(rows))
+    return tuple(_candle(index, row[0], row[1], row[2], row[3], volume=row[4]) for index, row in enumerate(rows))
 
 
 def _liquidity_reversal_structure() -> tuple[CandleStub, ...]:
     rows = (
-        (110.0, 111.0, 108.0, 109.0),
-        (109.0, 110.0, 104.0, 105.0),
-        (105.0, 106.0, 100.0, 101.0),
-        (101.0, 105.5, 99.4, 104.8),
-        (104.8, 108.5, 103.8, 108.0),
-        (108.0, 109.0, 105.5, 107.6),
+        (110.0, 111.0, 108.0, 109.0, 100.0),
+        (109.0, 110.0, 104.0, 105.0, 100.0),
+        (105.0, 106.0, 100.0, 101.0, 100.0),
+        (101.0, 105.5, 99.4, 104.8, 230.0),
+        (104.8, 108.5, 103.8, 108.0, 160.0),
+        (108.0, 109.0, 105.5, 107.6, 90.0),
     )
-    return tuple(_candle(index, *row, volume=850.0 + index * 15) for index, row in enumerate(rows))
+    return tuple(_candle(index, row[0], row[1], row[2], row[3], volume=row[4]) for index, row in enumerate(rows))
 
 
 def _entry_candles(*, latest_volume: float = 320.0, latest_confirmed: bool = True) -> tuple[CandleStub, ...]:
@@ -140,6 +140,11 @@ class TrendPriceVolumeFeatureTests(unittest.TestCase):
         self.assertEqual(setup.setup_type, "trend_continuation")
         self.assertEqual(setup.direction, "long")
         self.assertEqual(setup.evidence["structure"], "BOS_DISPLACEMENT_PULLBACK")
+        self.assertEqual(setup.evidence["strategy_family"], "breakout_pullback_continuation")
+        self.assertEqual(setup.evidence["trend_gate_role"], "hard_gate")
+        self.assertGreaterEqual(setup.evidence["breakout_rvol"], 2.0)
+        self.assertLessEqual(setup.evidence["pullback_rvol"], 0.8)
+        self.assertTrue(setup.evidence["pullback_holds_midpoint"])
         self.assertLess(setup.invalidation_level, setup.entry_zone["low"])
 
     def test_rejects_trend_continuation_without_trend_regime(self):
@@ -165,6 +170,38 @@ class TrendPriceVolumeFeatureTests(unittest.TestCase):
 
         self.assertIsNone(setup)
 
+    def test_rejects_trend_continuation_when_breakout_volume_is_not_expanded(self):
+        features = _import_features()
+        regime = features.build_market_regime(_bullish_regime_candles())
+        weak_breakout = tuple(
+            candle._replace(volume=120.0, volume_currency_quote=120.0 * candle.close) if index == 6 else candle
+            for index, candle in enumerate(_trend_continuation_structure())
+        )
+
+        setup = features.detect_price_action_setup(
+            weak_breakout,
+            _entry_candles(),
+            regime,
+        )
+
+        self.assertIsNone(setup)
+
+    def test_rejects_trend_continuation_when_pullback_loses_breakout_midpoint(self):
+        features = _import_features()
+        regime = features.build_market_regime(_bullish_regime_candles())
+        failed_pullback = tuple(
+            candle._replace(close=105.5, low=104.8) if index == 7 else candle
+            for index, candle in enumerate(_trend_continuation_structure())
+        )
+
+        setup = features.detect_price_action_setup(
+            failed_pullback,
+            _entry_candles(),
+            regime,
+        )
+
+        self.assertIsNone(setup)
+
     def test_detects_liquidity_reversal_from_sweep_and_choch(self):
         features = _import_features()
         regime = features.build_market_regime(_bullish_regime_candles())
@@ -180,6 +217,42 @@ class TrendPriceVolumeFeatureTests(unittest.TestCase):
         self.assertEqual(setup.direction, "long")
         self.assertEqual(setup.evidence["sweep_direction"], "down")
         self.assertEqual(setup.evidence["structure"], "SWEEP_CHOCH")
+        self.assertEqual(setup.evidence["strategy_family"], "liquidity_sweep_reclaim")
+        self.assertEqual(setup.evidence["trend_gate_role"], "soft_context")
+        self.assertGreaterEqual(setup.evidence["sweep_rvol"], 1.5)
+        self.assertLessEqual(setup.evidence["reclaim_bars"], 5)
+
+    def test_countertrend_liquidity_reversal_requires_stronger_sweep_volume(self):
+        features = _import_features()
+        bullish_regime = features.build_market_regime(_bullish_regime_candles())
+        countertrend_short = (
+            _candle(0, 100.0, 102.0, 99.0, 101.0, 100.0),
+            _candle(1, 101.0, 104.0, 100.0, 103.0, 100.0),
+            _candle(2, 103.0, 106.0, 102.0, 105.0, 100.0),
+            _candle(3, 105.0, 106.6, 101.0, 102.0, 170.0),
+            _candle(4, 102.0, 103.0, 98.0, 99.0, 160.0),
+        )
+
+        setup = features.detect_price_action_setup(
+            countertrend_short,
+            _entry_candles(),
+            bullish_regime,
+        )
+
+        self.assertIsNone(setup)
+
+    def test_volume_price_prefers_quote_volume_for_crypto(self):
+        features = _import_features()
+        candles = tuple(
+            candle._replace(volume=100.0, volume_currency_quote=1000.0)
+            for candle in _entry_candles(latest_volume=100.0)
+        )
+        candles = (*candles[:-1], candles[-1]._replace(volume=100.0, volume_currency_quote=2600.0))
+
+        confirmation = features.confirm_volume_price(candles, "long")
+
+        self.assertEqual(confirmation.status, "confirm")
+        self.assertEqual(confirmation.evidence["volume_source"], "quote")
 
     def test_confirm_volume_price_outputs_status_without_direction(self):
         features = _import_features()

@@ -47,28 +47,28 @@ def _bullish_trend_candles(count: int = 230) -> tuple[Candle, ...]:
 
 def _trend_continuation_structure() -> tuple[Candle, ...]:
     rows = (
-        (100.0, 101.0, 99.0, 100.5),
-        (100.5, 103.0, 100.0, 102.5),
-        (102.5, 105.0, 101.5, 104.5),
-        (104.5, 104.8, 101.0, 102.0),
-        (102.0, 103.2, 100.2, 101.5),
-        (101.5, 104.2, 101.0, 103.8),
-        (103.8, 108.2, 103.2, 107.6),
-        (107.6, 108.0, 105.0, 106.4),
+        (100.0, 101.0, 99.0, 100.5, 100.0),
+        (100.5, 103.0, 100.0, 102.5, 100.0),
+        (102.5, 105.0, 101.5, 104.5, 100.0),
+        (104.5, 104.8, 101.0, 102.0, 100.0),
+        (102.0, 103.2, 100.2, 101.5, 100.0),
+        (101.5, 104.2, 101.0, 103.8, 100.0),
+        (103.8, 110.0, 103.2, 109.4, 260.0),
+        (109.4, 109.8, 107.8, 108.4, 65.0),
     )
-    return tuple(_candle(index, *row, volume=800.0 + index * 10) for index, row in enumerate(rows))
+    return tuple(_candle(index, row[0], row[1], row[2], row[3], volume=row[4]) for index, row in enumerate(rows))
 
 
 def _liquidity_reversal_structure() -> tuple[Candle, ...]:
     rows = (
-        (110.0, 111.0, 108.0, 109.0),
-        (109.0, 110.0, 104.0, 105.0),
-        (105.0, 106.0, 100.0, 101.0),
-        (101.0, 105.5, 99.4, 104.8),
-        (104.8, 108.5, 103.8, 108.0),
-        (108.0, 109.0, 105.5, 107.6),
+        (110.0, 111.0, 108.0, 109.0, 100.0),
+        (109.0, 110.0, 104.0, 105.0, 100.0),
+        (105.0, 106.0, 100.0, 101.0, 100.0),
+        (101.0, 105.5, 99.4, 104.8, 230.0),
+        (104.8, 108.5, 103.8, 108.0, 160.0),
+        (108.0, 109.0, 105.5, 107.6, 90.0),
     )
-    return tuple(_candle(index, *row, volume=850.0 + index * 15) for index, row in enumerate(rows))
+    return tuple(_candle(index, row[0], row[1], row[2], row[3], volume=row[4]) for index, row in enumerate(rows))
 
 
 def _entry_candles(*, quiet_latest: bool = False) -> tuple[Candle, ...]:
@@ -126,6 +126,8 @@ class TrendPriceVolumeStrategySignalTests(unittest.TestCase):
         self.assertEqual(signal.symbol, "BTC/USDT")
         self.assertEqual(signal.venue, "okx")
         self.assertEqual(signal.timeframe_group, "B")
+        self.assertEqual(signal.price_action_evidence["strategy_family"], "breakout_pullback_continuation")
+        self.assertEqual(signal.explanation_payload["strategy_family"], "breakout_pullback_continuation")
         self.assertEqual(signal.volume_price_evidence["status"], "confirm")
         self.assertGreater(signal.target_hint["reward_to_risk"], 1.5)
         self.assertLess(signal.invalidation_level, signal.entry_zone["low"])
@@ -141,6 +143,22 @@ class TrendPriceVolumeStrategySignalTests(unittest.TestCase):
                 "1h": _trend_continuation_structure(),
                 "4h": _bullish_trend_candles(),
             },
+        )
+
+        self.assertEqual(strategy.generate_signals(context), ())
+
+    def test_strategy_parameter_override_can_tighten_breakout_threshold(self):
+        strategy = get_strategy("trend_price_volume", version="v1")
+        context = StrategyContext(
+            symbol="BTC/USDT",
+            venue="okx",
+            timeframe_group="B",
+            candles_by_timeframe={
+                "15m": _entry_candles(),
+                "1h": _trend_continuation_structure(),
+                "4h": _bullish_trend_candles(),
+            },
+            features={"strategy_parameters": {"breakout_rvol_min": 3.0}},
         )
 
         self.assertEqual(strategy.generate_signals(context), ())
@@ -165,6 +183,8 @@ class TrendPriceVolumeStrategySignalTests(unittest.TestCase):
         self.assertEqual(signal.setup_type, "liquidity_reversal")
         self.assertEqual(signal.direction, "long")
         self.assertEqual(signal.price_action_evidence["sweep_direction"], "down")
+        self.assertEqual(signal.price_action_evidence["strategy_family"], "liquidity_sweep_reclaim")
+        self.assertEqual(signal.explanation_payload["trend_gate_role"], "soft_context")
         self.assertGreaterEqual(signal.target_hint["reward_to_risk"], 1.5)
 
 
