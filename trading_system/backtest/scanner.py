@@ -65,10 +65,13 @@ class BacktestScanGroupSummary:
     gross_profit: float
     gross_loss: float
     total_cost: float
+    max_drawdown: float
     win_rate: float
+    profit_loss_ratio: float
     profit_factor: float
     expectancy_per_trade: float
     average_holding_bars: float
+    fee_to_gross_profit_ratio: float
 
 
 @dataclass(frozen=True)
@@ -246,6 +249,7 @@ def _build_group_summaries(profile_runs: Sequence[BacktestProfileScan]) -> tuple
     approved_counts: dict[tuple[str, ...], int] = defaultdict(int)
     rejected_counts: dict[tuple[str, ...], int] = defaultdict(int)
     fills_by_key: dict[tuple[str, ...], list[object]] = defaultdict(list)
+    initial_equity_by_key: dict[tuple[str, ...], float] = {}
 
     for run in profile_runs:
         approved_decisions = []
@@ -259,12 +263,15 @@ def _build_group_summaries(profile_runs: Sequence[BacktestProfileScan]) -> tuple
                 rejected_counts[key] += 1
 
         for decision, fill in zip(approved_decisions, run.result.fills):
-            fills_by_key[_group_key(decision.signal)].append(fill)
+            key = _group_key(decision.signal)
+            fills_by_key[key].append(fill)
+            if key not in initial_equity_by_key and run.result.equity_curve:
+                initial_equity_by_key[key] = float(run.result.equity_curve[0].equity)
 
     summaries: list[BacktestScanGroupSummary] = []
     for key in sorted(signal_counts):
         fills = tuple(fills_by_key.get(key, ()))
-        stats = _group_fill_stats(fills)
+        stats = _group_fill_stats(fills, initial_equity_by_key.get(key, 0.0))
         summaries.append(
             BacktestScanGroupSummary(
                 symbol=key[0],
@@ -296,17 +303,20 @@ def _group_key(signal: StrategySignal) -> tuple[str, ...]:
     )
 
 
-def _group_fill_stats(fills: Sequence[object]) -> dict[str, float]:
+def _group_fill_stats(fills: Sequence[object], initial_equity: float) -> dict[str, float]:
     if not fills:
         return {
             "net_profit": 0.0,
             "gross_profit": 0.0,
             "gross_loss": 0.0,
             "total_cost": 0.0,
+            "max_drawdown": 0.0,
             "win_rate": 0.0,
+            "profit_loss_ratio": 0.0,
             "profit_factor": 0.0,
             "expectancy_per_trade": 0.0,
             "average_holding_bars": 0.0,
+            "fee_to_gross_profit_ratio": 0.0,
         }
 
     net_values = [float(fill.net_pnl) for fill in fills]
@@ -316,16 +326,35 @@ def _group_fill_stats(fills: Sequence[object]) -> dict[str, float]:
     gross_profit = sum(max(value, 0.0) for value in gross_values)
     gross_loss = sum(min(value, 0.0) for value in gross_values)
     total_cost = sum(float(fill.cost_estimate.total) for fill in fills)
+    average_win = sum(wins) / len(wins) if wins else 0.0
+    average_loss = abs(sum(losses) / len(losses)) if losses else 0.0
     return {
         "net_profit": sum(net_values),
         "gross_profit": gross_profit,
         "gross_loss": gross_loss,
         "total_cost": total_cost,
+        "max_drawdown": _max_drawdown(fills, initial_equity),
         "win_rate": len(wins) / len(fills),
+        "profit_loss_ratio": 0.0 if average_loss == 0 else average_win / average_loss,
         "profit_factor": _profit_factor(gross_profit, gross_loss),
         "expectancy_per_trade": sum(net_values) / len(fills),
         "average_holding_bars": sum(int(fill.holding_bars) for fill in fills) / len(fills),
+        "fee_to_gross_profit_ratio": 0.0 if gross_profit <= 0 else total_cost / gross_profit,
     }
+
+
+def _max_drawdown(fills: Sequence[object], initial_equity: float) -> float:
+    if initial_equity <= 0:
+        return 0.0
+    equity = initial_equity
+    high_water_mark = initial_equity
+    max_drawdown = 0.0
+    for fill in fills:
+        equity += float(fill.net_pnl)
+        high_water_mark = max(high_water_mark, equity)
+        if high_water_mark > 0:
+            max_drawdown = max(max_drawdown, (high_water_mark - equity) / high_water_mark)
+    return max_drawdown
 
 
 def _profit_factor(gross_profit: float, gross_loss: float) -> float:

@@ -19,6 +19,12 @@ from trading_system.backtest.scanner import (
     BacktestScanTarget,
     infer_strategy_family,
 )
+from trading_system.backtest.batch import (
+    BacktestBatchReport,
+    BacktestBatchRunner,
+    RankedBacktestGroup,
+    rank_scan_groups,
+)
 from trading_system.backtest.risk import (
     AccountState,
     CostEstimate,
@@ -36,6 +42,8 @@ __all__ = (
     "BacktestExecutionConfig",
     "BacktestExecutionEngine",
     "BacktestExitEvent",
+    "BacktestBatchReport",
+    "BacktestBatchRunner",
     "BacktestFillResult",
     "BacktestProfileScan",
     "BacktestRunResult",
@@ -54,8 +62,10 @@ __all__ = (
     "RiskDecision",
     "RiskEngine",
     "RiskParameters",
+    "RankedBacktestGroup",
     "SignalOrderAdapter",
     "SimulatedOrder",
     "TradeLogEntry",
     "infer_strategy_family",
+    "rank_scan_groups",
 )

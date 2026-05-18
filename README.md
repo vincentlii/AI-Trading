@@ -29,8 +29,9 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 - P4.2 完整历史滚动信号扫描器 v1：按多标的、多周期滚动构建 `StrategyContext`，接入 P4.1 执行层，并输出 `strategy_family` / `setup_type` 分层统计。
 - P4.3 高级出场模型 v1：支持 1R 减仓、真实盈亏平衡、Chandelier Exit、时间止损和结构化出场事件。
 - 配置化地基 v1：P4.4 先使用 `configs/presets/btc_eth_p4_4.toml` 管理 BTC/ETH、风险、成本、策略启停、回测执行和周期排名参数。
+- P4.4 BTC/ETH 三周期 A/B/C 批量回测排名 v1：读取 preset，调用 P4.2 滚动扫描器和 P4.3 高级出场执行层，输出分层指标、排名状态和 A 组成本淘汰结果。
 
-下一小步：P4.4，先只围绕 BTC/ETH 做三周期 A/B/C 批量回测、指标排名和成本淘汰规则。
+下一小步：P4.5，建设参数 proposal 队列与回测验证入口。
 
 ## 核心文档
 
@@ -74,7 +75,8 @@ D:\交易系统
 ├── scripts
 │   ├── check_data_quality.py
 │   ├── download_okx_history.py
-│   └── okx_market_smoke.py
+│   ├── okx_market_smoke.py
+│   └── run_btc_eth_p4_4_backtest.py
 ├── trading_system
 │   ├── __init__.py
 │   ├── timeframe_profiles.py
@@ -151,6 +153,7 @@ D:\交易系统
 | `trading_system/backtest/risk.py` | 风控模型 | 定义订单意图、账户状态、成本估计、风控决策和持仓领域模型。 |
 | `trading_system/backtest/execution.py` | 回测撮合执行 | 把策略信号接入风控，完成模拟撮合、交易日志、权益曲线和高级出场事件。 |
 | `trading_system/backtest/scanner.py` | 历史滚动扫描器 | 从历史 K 线滚动构建策略上下文，生成信号，调用回测执行层并按策略族分层统计。 |
+| `trading_system/backtest/batch.py` | 批量回测排名 | 串联 preset、滚动扫描器和执行层，输出 P4.4 排名、状态和成本淘汰结果。 |
 | `trading_system/config/loader.py` | 配置加载器 | 读取 TOML 配置，校验范围，并转换为回测、风控和扫描配置对象。 |
 | `trading_system/data/history.py` | 历史行情仓库 | 提供内存版和 DuckDB 版 K 线存储、查询和下载状态管理。 |
 | `trading_system/data/okx_cli.py` | OKX 行情适配器 | 通过 OKX CLI 获取公开 ticker、K 线和 instruments。 |
@@ -219,6 +222,12 @@ OKX 公开行情冒烟测试：
 
 ```powershell
 .\.venv\Scripts\python -c "from trading_system.config import load_backtest_preset; p=load_backtest_preset('configs/presets/btc_eth_p4_4.toml'); print(p.config_version, p.config_fingerprint)"
+```
+
+运行 P4.4 BTC/ETH 三周期批量回测排名：
+
+```powershell
+.\.venv\Scripts\python scripts\run_btc_eth_p4_4_backtest.py
 ```
 
 配置只用于参数、资产范围、成本假设和策略启停，不改变策略状态机、风控执行逻辑或无前瞻撮合规则。
