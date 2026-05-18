@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from trading_system.backtest.execution import BacktestExecutionEngine
 from trading_system.backtest.risk import RiskEngine
 from trading_system.backtest.scanner import BacktestRollingScanner, BacktestScanGroupSummary, BacktestScanResult
-from trading_system.config.loader import BacktestPresetConfig, RankingConfig
 from trading_system.strategies.base import Strategy, StrategyContext, StrategyMetadata, StrategySignal
+
+if TYPE_CHECKING:
+    from trading_system.config.loader import BacktestPresetConfig, RankingConfig
 
 
 @dataclass(frozen=True)

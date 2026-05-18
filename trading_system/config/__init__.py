@@ -10,6 +10,15 @@ from trading_system.config.loader import (
     StrategyConfig,
     load_backtest_preset,
 )
+from trading_system.config.proposals import (
+    ParameterProposal,
+    ProposalChange,
+    ProposalError,
+    apply_parameter_proposal,
+    load_parameter_proposal,
+    make_parameter_proposal,
+    save_parameter_proposal,
+)
 
 __all__ = (
     "AssetConfig",
@@ -21,5 +30,12 @@ __all__ = (
     "RankingConfig",
     "ScanConfig",
     "StrategyConfig",
+    "ParameterProposal",
+    "ProposalChange",
+    "ProposalError",
+    "apply_parameter_proposal",
+    "load_parameter_proposal",
     "load_backtest_preset",
+    "make_parameter_proposal",
+    "save_parameter_proposal",
 )

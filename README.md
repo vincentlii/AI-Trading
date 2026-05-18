@@ -30,8 +30,9 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 - P4.3 高级出场模型 v1：支持 1R 减仓、真实盈亏平衡、Chandelier Exit、时间止损和结构化出场事件。
 - 配置化地基 v1：P4.4 先使用 `configs/presets/btc_eth_p4_4.toml` 管理 BTC/ETH、风险、成本、策略启停、回测执行和周期排名参数。
 - P4.4 BTC/ETH 三周期 A/B/C 批量回测排名 v1：读取 preset，调用 P4.2 滚动扫描器和 P4.3 高级出场执行层，输出分层指标、排名状态和 A 组成本淘汰结果。
+- P4.5 参数 proposal 队列与回测验证入口 v1：结构化保存参数建议，只在内存中应用 patch，并复用 P4.4 路径验证，不自动修改正式配置。
 
-下一小步：P4.5，建设参数 proposal 队列与回测验证入口。
+下一小步：P5，本地 Streamlit 网页看板。
 
 ## 核心文档
 
@@ -76,13 +77,16 @@ D:\交易系统
 │   ├── check_data_quality.py
 │   ├── download_okx_history.py
 │   ├── okx_market_smoke.py
-│   └── run_btc_eth_p4_4_backtest.py
+│   ├── run_btc_eth_p4_4_backtest.py
+│   └── validate_p4_5_proposal.py
 ├── trading_system
 │   ├── __init__.py
 │   ├── timeframe_profiles.py
 │   ├── backtest
 │   │   ├── __init__.py
+│   │   ├── batch.py
 │   │   ├── execution.py
+│   │   ├── proposal_validation.py
 │   │   ├── risk.py
 │   │   └── scanner.py
 │   ├── config
@@ -154,7 +158,9 @@ D:\交易系统
 | `trading_system/backtest/execution.py` | 回测撮合执行 | 把策略信号接入风控，完成模拟撮合、交易日志、权益曲线和高级出场事件。 |
 | `trading_system/backtest/scanner.py` | 历史滚动扫描器 | 从历史 K 线滚动构建策略上下文，生成信号，调用回测执行层并按策略族分层统计。 |
 | `trading_system/backtest/batch.py` | 批量回测排名 | 串联 preset、滚动扫描器和执行层，输出 P4.4 排名、状态和成本淘汰结果。 |
+| `trading_system/backtest/proposal_validation.py` | proposal 回测验证 | 把参数 proposal 转为内存 preset，并复用 P4.4 runner 对比 base/proposed 结果。 |
 | `trading_system/config/loader.py` | 配置加载器 | 读取 TOML 配置，校验范围，并转换为回测、风控和扫描配置对象。 |
+| `trading_system/config/proposals.py` | proposal 队列 | 读写 JSON 参数建议、校验允许字段、生成内存版 proposed preset。 |
 | `trading_system/data/history.py` | 历史行情仓库 | 提供内存版和 DuckDB 版 K 线存储、查询和下载状态管理。 |
 | `trading_system/data/okx_cli.py` | OKX 行情适配器 | 通过 OKX CLI 获取公开 ticker、K 线和 instruments。 |
 | `trading_system/data/quality.py` | 数据质量检查 | 检查空数据、缺口、重复、未确认 K 线、OHLC 异常和负成交量。 |
@@ -228,6 +234,12 @@ OKX 公开行情冒烟测试：
 
 ```powershell
 .\.venv\Scripts\python scripts\run_btc_eth_p4_4_backtest.py
+```
+
+验证 P4.5 参数 proposal：
+
+```powershell
+.\.venv\Scripts\python scripts\validate_p4_5_proposal.py --proposal configs\proposals\<proposal>.json
 ```
 
 配置只用于参数、资产范围、成本假设和策略启停，不改变策略状态机、风控执行逻辑或无前瞻撮合规则。
