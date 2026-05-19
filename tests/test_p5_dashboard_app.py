@@ -16,6 +16,7 @@ class FakeStreamlit:
     def __init__(self):
         self.captions = []
         self.columns_created = []
+        self.markdowns = []
 
     def caption(self, value):
         self.captions.append(value)
@@ -24,6 +25,9 @@ class FakeStreamlit:
         columns = [FakeColumn() for _ in range(count)]
         self.columns_created.append(columns)
         return columns
+
+    def markdown(self, value, *, unsafe_allow_html=False):
+        self.markdowns.append((value, unsafe_allow_html))
 
 
 class P5DashboardAppTests(unittest.TestCase):
@@ -52,6 +56,19 @@ class P5DashboardAppTests(unittest.TestCase):
             labels,
             ["排名组", "候选", "辅助", "淘汰", "净利润", "数据失败", "跳过扫描", "Proposal"],
         )
+
+    def test_table_renderer_uses_html_without_dataframe_dependency(self):
+        fake_st = FakeStreamlit()
+
+        app._render_table(fake_st, ({"symbol": "BTC/USDT", "reason_codes": ("a", "b"), "score": 1.23456789},))
+
+        self.assertEqual(len(fake_st.markdowns), 1)
+        markup, unsafe = fake_st.markdowns[0]
+        self.assertTrue(unsafe)
+        self.assertIn("<table", markup)
+        self.assertIn("BTC/USDT", markup)
+        self.assertIn("a, b", markup)
+        self.assertIn("1.23457", markup)
 
 
 if __name__ == "__main__":
