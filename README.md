@@ -31,8 +31,9 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 - 配置化地基 v1：P4.4 先使用 `configs/presets/btc_eth_p4_4.toml` 管理 BTC/ETH、风险、成本、策略启停、回测执行和周期排名参数。
 - P4.4 BTC/ETH 三周期 A/B/C 批量回测排名 v1：读取 preset，调用 P4.2 滚动扫描器和 P4.3 高级出场执行层，输出分层指标、排名状态和 A 组成本淘汰结果。
 - P4.5 参数 proposal 队列与回测验证入口 v1：结构化保存参数建议，只在内存中应用 patch，并复用 P4.4 路径验证，不自动修改正式配置。
+- P5 本地 Streamlit 网页看板 v1：读取本地 DuckDB、P4.4 批量回测排名、数据质量状态和 P4.5 proposal 队列，只展示不交易。
 
-下一小步：P5，本地 Streamlit 网页看板。
+下一小步：P6，模拟盘 + 解释/复盘/优化。
 
 ## 核心文档
 
@@ -55,6 +56,7 @@ MarketRegime -> PriceActionSetup -> VolumePriceConfirmation -> RiskDecision -> S
 
 ```text
 D:\交易系统
+├── app.py
 ├── README.md
 ├── 项目总规划.md
 ├── 策略规格.md
@@ -98,6 +100,9 @@ D:\交易系统
 │   │   ├── okx_cli.py
 │   │   ├── quality.py
 │   │   └── universe.py
+│   ├── dashboard
+│   │   ├── __init__.py
+│   │   └── panel.py
 │   ├── indicators
 │   │   ├── __init__.py
 │   │   ├── registry.py
@@ -149,6 +154,7 @@ D:\交易系统
 | `策略规格.md` | 策略系统总规范 | 定义策略插件架构、标准信号、三周期分层、风控边界和 PA+VPA 策略族。 |
 | `代理协作流程.md` | 代理协作规则 | 记录主线程、sub-agent、模型、写入范围和验收规则。 |
 | `requirements.txt` | Python 依赖清单 | 记录项目本地 `.venv` 需要安装的依赖。 |
+| `app.py` | Streamlit 看板入口 | 本地只读看板入口，展示 P4.4 排名、数据质量、跳过扫描和 proposal 队列。 |
 | `configs/` | 配置目录 | 存放可审计的资产、风险、成本、策略和回测预设配置。 |
 | `configs/presets/btc_eth_p4_4.toml` | BTC/ETH 回测预设 | P4.4 主配置入口，引用 BTC/ETH、风险、成本、策略和执行配置。 |
 | `configs/proposals/` | 配置建议目录 | 存放 Agent 或人工提出的配置修改 proposal，不自动生效。 |
@@ -165,6 +171,7 @@ D:\交易系统
 | `trading_system/data/okx_cli.py` | OKX 行情适配器 | 通过 OKX CLI 获取公开 ticker、K 线和 instruments。 |
 | `trading_system/data/quality.py` | 数据质量检查 | 检查空数据、缺口、重复、未确认 K 线、OHLC 异常和负成交量。 |
 | `trading_system/data/universe.py` | 资产宇宙 | 定义默认标的、交易所映射、资产类别和未来 Nasdaq 扩展入口。 |
+| `trading_system/dashboard/panel.py` | 看板数据层 | 装配 P4.4 批量回测、数据质量、跳过扫描和 proposal 展示数据。 |
 | `trading_system/indicators/registry.py` | 指标注册表 | 暴露可复用指标元数据，供策略声明依赖。 |
 | `trading_system/indicators/regime.py` | 市场体制指标 | 实现趋势、波动、效率和震荡相关基础指标。 |
 | `trading_system/strategies/base.py` | 策略基础接口 | 定义 `Strategy`、`StrategyMetadata`、`StrategyContext` 和 `StrategySignal`。 |
@@ -185,6 +192,7 @@ python -m venv .venv
 当前依赖：
 
 - `duckdb`：本地历史行情仓库。
+- `streamlit`：本地网页看板。
 
 ## 常用命令
 
@@ -240,6 +248,24 @@ OKX 公开行情冒烟测试：
 
 ```powershell
 .\.venv\Scripts\python scripts\validate_p4_5_proposal.py --proposal configs\proposals\<proposal>.json
+```
+
+启动 P5 本地 Streamlit 看板：
+
+```powershell
+.\.venv\Scripts\streamlit run app.py
+```
+
+检查 P5 看板能否启动并返回健康状态：
+
+```powershell
+.\.venv\Scripts\python scripts\check_p5_dashboard.py
+```
+
+检查通过后保持本地看板运行：
+
+```powershell
+.\.venv\Scripts\python scripts\check_p5_dashboard.py --keep-running
 ```
 
 配置只用于参数、资产范围、成本假设和策略启停，不改变策略状态机、风控执行逻辑或无前瞻撮合规则。

@@ -1,0 +1,141 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from trading_system.config import ProposalChange, load_backtest_preset, make_parameter_proposal, save_parameter_proposal
+from trading_system.data.history import CandleRepository
+from trading_system.data.okx_cli import Candle
+from trading_system.data.quality import bar_duration_ms
+from trading_system.strategies.base import Strategy, StrategyContext, StrategyMetadata, StrategySignal
+from trading_system.timeframe_profiles import get_profile
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PRESET_PATH = PROJECT_ROOT / "configs" / "presets" / "btc_eth_p4_4.toml"
+
+
+def _candle(index: int, interval_ms: int, open_price: float, high: float, low: float, close: float) -> Candle:
+    return Candle(
+        timestamp_ms=1_700_000_000_000 + index * interval_ms,
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
+        volume=100.0,
+        volume_currency=100.0,
+        volume_currency_quote=100.0 * close,
+        is_confirmed=True,
+    )
+
+
+def _repository_with_btc_eth_abc_data() -> CandleRepository:
+    repository = CandleRepository()
+    for inst_id in ("BTC-USDT", "ETH-USDT"):
+        for bar in ("5m", "15m", "1H", "4H", "1D"):
+            interval_ms = bar_duration_ms(bar)
+            candles = (
+                _candle(0, interval_ms, 100.0, 104.0, 99.0, 102.0),
+                _candle(1, interval_ms, 102.0, 105.0, 100.0, 104.0),
+                _candle(2, interval_ms, 104.0, 106.0, 101.0, 105.0),
+                _candle(3, interval_ms, 100.0, 112.0, 99.0, 111.0),
+            )
+            repository.save_many(inst_id, bar, candles)
+    return repository
+
+
+class OneSignalPerProfileStrategy(Strategy):
+    metadata = StrategyMetadata(
+        name="trend_price_volume",
+        version="v1",
+        description="Dashboard test strategy.",
+        required_timeframe_profile_keys=("A", "B", "C"),
+        required_indicators=(),
+        documentation_path="",
+        supported_symbols=("BTC/USDT", "ETH/USDT"),
+        setup_types=("trend_continuation",),
+    )
+
+    def generate_signals(self, context: StrategyContext) -> tuple[StrategySignal, ...]:
+        profile = get_profile(context.timeframe_group)
+        entry = tuple(context.candles_by_timeframe[profile.entry_timeframe])
+        if len(entry) != 3:
+            return ()
+        return (
+            StrategySignal(
+                strategy_name=self.metadata.name,
+                strategy_version=self.metadata.version,
+                setup_type="trend_continuation",
+                symbol=context.symbol,
+                venue=context.venue,
+                timeframe_group=context.timeframe_group,
+                direction="long",
+                entry_zone={"low": 99.0, "high": 101.0},
+                invalidation_level=95.0,
+                target_hint={"target_price": 110.0},
+                trend_evidence={"atr": 3.0},
+                price_action_evidence={},
+                volume_price_evidence={"status": "confirm"},
+                risk_profile={},
+                explanation_payload={"strategy_family": "breakout_pullback_continuation"},
+            ),
+        )
+
+
+class DashboardPanelTests(unittest.TestCase):
+    def test_snapshot_uses_p4_4_runner_quality_checks_and_read_only_proposals(self):
+        from trading_system.dashboard.panel import build_dashboard_snapshot
+
+        preset = load_backtest_preset(PRESET_PATH)
+        proposal = make_parameter_proposal(
+            proposal_id="dashboard_smoke",
+            title="Dashboard smoke proposal",
+            source="agent",
+            base_preset_path="configs/presets/btc_eth_p4_4.toml",
+            base_preset=preset,
+            changes=(
+                ProposalChange(
+                    path="ranking.min_trades_for_primary",
+                    before=30,
+                    after=40,
+                    reason="Check proposal listing in dashboard.",
+                ),
+            ),
+            evidence={"source": "unit_test"},
+            expected_impact="No formal config changes.",
+            risks=("Dashboard must not apply this proposal.",),
+            validation_plan=("List the proposal only.",),
+        )
+
+        with tempfile.TemporaryDirectory(dir=PROJECT_ROOT) as temp_dir:
+            proposal_path = save_parameter_proposal(proposal, Path(temp_dir))
+            snapshot = build_dashboard_snapshot(
+                repository=_repository_with_btc_eth_abc_data(),
+                preset=preset,
+                strategy=OneSignalPerProfileStrategy(),
+                proposals_dir=Path(temp_dir),
+            )
+
+        self.assertEqual(snapshot.config_version, preset.config_version)
+        self.assertEqual(snapshot.config_fingerprint, preset.config_fingerprint)
+        self.assertEqual(len(snapshot.ranking_rows), 6)
+        self.assertEqual({row["symbol"] for row in snapshot.ranking_rows}, {"BTC/USDT", "ETH/USDT"})
+        self.assertEqual({row["timeframe_group"] for row in snapshot.ranking_rows}, {"A", "B", "C"})
+
+        self.assertEqual(len(snapshot.quality_rows), 10)
+        self.assertEqual({row["symbol"] for row in snapshot.quality_rows}, {"BTC/USDT", "ETH/USDT"})
+        self.assertNotIn("XAUT/USDT", {row["symbol"] for row in snapshot.quality_rows})
+        self.assertTrue(all(row["status"] == "pass" for row in snapshot.quality_rows))
+
+        self.assertEqual(len(snapshot.proposal_rows), 1)
+        self.assertEqual(snapshot.proposal_rows[0]["proposal_id"], "dashboard_smoke")
+        self.assertEqual(snapshot.proposal_rows[0]["status"], "loaded")
+        self.assertEqual(snapshot.proposal_rows[0]["auto_apply"], False)
+        self.assertEqual(snapshot.proposal_rows[0]["path"], str(proposal_path))
+
+        self.assertEqual(snapshot.summary["ranked_groups"], 6)
+        self.assertEqual(snapshot.summary["quality_failures"], 0)
+        self.assertEqual(snapshot.summary["proposals"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
