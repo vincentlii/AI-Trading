@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from trading_system.backtest.execution import (
@@ -302,6 +302,11 @@ class PaperTradingEngine:
             review_log=tuple(review_log),
             account=account,
         )
+
+    def run_market_events(self, events: Sequence[object], signal_provider: Callable[[object], Sequence[StrategySignal]]) -> PaperTradingResult:
+        from trading_system.simulation.events import paper_inputs_from_market_events
+
+        return self.run(paper_inputs_from_market_events(events, signal_provider))
 
 
 def _close_due_positions(
