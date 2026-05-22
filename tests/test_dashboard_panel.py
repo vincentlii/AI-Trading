@@ -132,9 +132,31 @@ class DashboardPanelTests(unittest.TestCase):
         self.assertEqual(snapshot.proposal_rows[0]["auto_apply"], False)
         self.assertEqual(snapshot.proposal_rows[0]["path"], str(proposal_path))
 
+        self.assertEqual(len(snapshot.performance_metric_rows), 6)
+        self.assertEqual({row["primary_metric_source"] for row in snapshot.performance_metric_rows}, {"project_backtest_summary"})
+        self.assertEqual({row["library"] for row in snapshot.performance_library_rows}, {"quantstats", "empyrical"})
+        self.assertEqual(snapshot.performance_artifact_rows[0]["status"], "not_generated")
+        self.assertEqual(len(snapshot.data_coverage_rows), 10)
+        self.assertEqual({row["bar"] for row in snapshot.data_coverage_rows}, {"5m", "15m", "1H", "4H", "1D"})
+        self.assertEqual(len(snapshot.profile_coverage_rows), 6)
+        self.assertEqual({row["profile"] for row in snapshot.profile_coverage_rows}, {"A", "B", "C"})
+        self.assertEqual(len(snapshot.signal_funnel_rows), 6)
+        self.assertTrue(all("approved_signal" in row for row in snapshot.signal_funnel_rows))
+        self.assertIsInstance(snapshot.volume_rejection_rows, tuple)
+        self.assertIsInstance(snapshot.volume_distribution_rows, tuple)
+        self.assertIsInstance(snapshot.risk_rejection_rows, tuple)
+        self.assertIsInstance(snapshot.near_miss_rows, tuple)
+
         self.assertEqual(snapshot.summary["ranked_groups"], 6)
         self.assertEqual(snapshot.summary["quality_failures"], 0)
         self.assertEqual(snapshot.summary["proposals"], 1)
+        self.assertEqual(snapshot.summary["performance_runs"], 6)
+        self.assertEqual(snapshot.summary["coverage_bars"], 10)
+        self.assertEqual(snapshot.summary["signal_funnel_profiles"], 6)
+        self.assertIn("volume_rejection_groups", snapshot.summary)
+        self.assertIn("risk_rejection_groups", snapshot.summary)
+        self.assertIn("near_miss_candidates", snapshot.summary)
+        self.assertEqual(snapshot.summary["dashboard_max_entry_windows"], 200)
 
 
 if __name__ == "__main__":
