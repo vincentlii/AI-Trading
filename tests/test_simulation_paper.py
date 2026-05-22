@@ -57,14 +57,38 @@ class PaperTradingEngineTests(unittest.TestCase):
         self.assertEqual(result.decisions[0].status, "approved")
         self.assertEqual(len(result.fills), 1)
         self.assertEqual(len(result.positions), 1)
+        self.assertEqual(len(result.closed_positions), 1)
+        self.assertEqual(len(result.closed_trades), 1)
         self.assertEqual(result.positions[0].entry_price, 100.0)
         self.assertEqual(result.positions[0].stop_loss, 95.0)
         self.assertGreater(result.fills[0].cost_estimate.total, 0.0)
+        self.assertGreater(result.equity_curve[-1].equity, 100_000.0)
         self.assertEqual(
             [entry.event_type for entry in result.review_log],
-            ["signal_received", "order_created", "fill_recorded", "position_opened"],
+            [
+                "signal_received",
+                "order_created",
+                "fill_recorded",
+                "position_opened",
+                "exit_recorded",
+                "position_closed",
+                "equity_updated",
+            ],
         )
-        self.assertEqual(result.account.open_positions, result.positions)
+        self.assertEqual(result.account.open_positions, ())
+
+    def test_stop_exit_records_negative_cost_adjusted_r_multiple(self):
+        result = self.engine(fee_rate=0.001).run(
+            (PaperSignalInput(_signal(), (_candle(1, 100.0, 102.0, 94.0, 95.0),)),)
+        )
+
+        closed_trade = result.closed_trades[0]
+
+        self.assertEqual(closed_trade.exit_reason, "stop_loss")
+        self.assertLess(closed_trade.net_pnl, 0.0)
+        self.assertLess(closed_trade.r_multiple, 0.0)
+        self.assertEqual(result.review_log[-2].event_type, "position_closed")
+        self.assertEqual(result.review_log[-2].payload["r_multiple"], closed_trade.r_multiple)
 
     def test_adapter_rejection_is_recorded_without_order_or_position(self):
         result = self.engine().run(
@@ -93,7 +117,14 @@ class PaperTradingEngineTests(unittest.TestCase):
     def test_open_positions_feed_next_risk_decision(self):
         result = self.engine(risk_parameters=RiskParameters(max_portfolio_heat_pct=0.005)).run(
             (
-                PaperSignalInput(_signal(), (_candle(1, 100.0, 104.0, 99.0, 103.0),)),
+                PaperSignalInput(
+                    _signal(),
+                    (
+                        _candle(1, 100.0, 104.0, 99.0, 103.0),
+                        _candle(2, 103.0, 104.0, 100.0, 103.0),
+                        _candle(3, 103.0, 104.0, 100.0, 103.0),
+                    ),
+                ),
                 PaperSignalInput(_signal(), (_candle(2, 100.0, 104.0, 99.0, 103.0),)),
             )
         )
@@ -102,7 +133,8 @@ class PaperTradingEngineTests(unittest.TestCase):
         self.assertEqual(result.decisions[1].status, "rejected")
         self.assertIn("portfolio_heat_exceeded", result.decisions[1].reason_codes)
         self.assertEqual(len(result.positions), 1)
-        self.assertEqual(result.account.open_positions, result.positions)
+        self.assertEqual(result.account.open_positions, ())
+        self.assertEqual(len(result.closed_positions), 1)
 
 
 if __name__ == "__main__":

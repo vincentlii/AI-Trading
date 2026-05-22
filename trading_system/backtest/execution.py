@@ -246,6 +246,21 @@ class BacktestExecutionEngine:
         )
 
 
+def simulate_approved_fill(
+    *,
+    risk_decision: RiskDecision,
+    execution_candles: Sequence[object],
+    config: BacktestExecutionConfig,
+    atr: float,
+) -> BacktestFillResult:
+    return _simulate_fill(
+        risk_decision=risk_decision,
+        execution_candles=execution_candles,
+        config=config,
+        atr=atr,
+    )
+
+
 def _simulate_fill(
     *,
     risk_decision: RiskDecision,
@@ -798,4 +813,5 @@ __all__ = (
     "BacktestRunResult",
     "SignalOrderAdapter",
     "BacktestExecutionEngine",
+    "simulate_approved_fill",
 )

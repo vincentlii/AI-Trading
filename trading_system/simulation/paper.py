@@ -3,7 +3,14 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
-from trading_system.backtest.execution import SignalOrderAdapter
+from trading_system.backtest.execution import (
+    BacktestExecutionConfig,
+    BacktestExitEvent,
+    BacktestFillResult,
+    EquityPoint,
+    SignalOrderAdapter,
+    simulate_approved_fill,
+)
 from trading_system.backtest.risk import (
     AccountState,
     CostEstimate,
@@ -18,11 +25,19 @@ from trading_system.strategies.base import StrategySignal
 @dataclass(frozen=True)
 class PaperBrokerConfig:
     initial_equity: float = 100_000.0
+    max_holding_bars: int = 20
     fee_rate: float = 0.0
     spread: float = 0.0
     slippage: float = 0.0
     funding: float = 0.0
+    conservative_same_bar: bool = True
     point_value: float = 1.0
+    enable_advanced_exits: bool = False
+    partial_take_profit_r: float = 1.0
+    partial_take_profit_pct: float = 0.5
+    move_stop_to_true_breakeven: bool = True
+    chandelier_period: int = 22
+    chandelier_atr_multiple: float = 4.0
 
 
 @dataclass(frozen=True)
@@ -68,8 +83,19 @@ class PaperTradingResult:
     decisions: tuple[PaperSignalDecision, ...]
     fills: tuple[PaperFill, ...]
     positions: tuple[PositionState, ...]
+    closed_positions: tuple[PositionState, ...]
+    closed_trades: tuple[BacktestFillResult, ...]
+    exit_events: tuple[BacktestExitEvent, ...]
+    equity_curve: tuple[EquityPoint, ...]
     review_log: tuple[ReviewLogEntry, ...]
     account: AccountState
+
+
+@dataclass(frozen=True)
+class _ActivePaperPosition:
+    position: PositionState
+    close_result: BacktestFillResult
+    signal: StrategySignal
 
 
 class PaperBroker:
@@ -128,10 +154,27 @@ class PaperTradingEngine:
         decisions: list[PaperSignalDecision] = []
         fills: list[PaperFill] = []
         positions: list[PositionState] = []
+        active_positions: list[_ActivePaperPosition] = []
+        closed_positions: list[PositionState] = []
+        closed_trades: list[BacktestFillResult] = []
+        exit_events: list[BacktestExitEvent] = []
+        equity_curve: list[EquityPoint] = [EquityPoint(timestamp_ms=None, equity=account.equity, drawdown_pct=0.0)]
         review_log: list[ReviewLogEntry] = []
 
         for item in inputs:
-            review_log.append(_review_entry(item.signal, "signal_received", "received", timestamp_ms=None))
+            entry_timestamp = _first_timestamp(item.execution_candles)
+            account = _close_due_positions(
+                active_positions=active_positions,
+                account=account,
+                timestamp_ms=entry_timestamp,
+                closed_positions=closed_positions,
+                closed_trades=closed_trades,
+                exit_events=exit_events,
+                equity_curve=equity_curve,
+                review_log=review_log,
+                force_close=False,
+            )
+            review_log.append(_review_entry(item.signal, "signal_received", "received", timestamp_ms=entry_timestamp))
             intent, atr, adapter_reasons = self.adapter.to_order_intent(
                 item.signal,
                 item.execution_candles,
@@ -180,7 +223,20 @@ class PaperTradingEngine:
 
             order = risk_decision.approved_order
             fill, position = self.broker.submit_order(order, item.execution_candles[0])
+            close_result = simulate_approved_fill(
+                risk_decision=risk_decision,
+                execution_candles=item.execution_candles,
+                config=_to_backtest_config(self.config),
+                atr=atr,
+            )
             positions.append(position)
+            active_positions.append(
+                _ActivePaperPosition(
+                    position=position,
+                    close_result=close_result,
+                    signal=item.signal,
+                )
+            )
             fills.append(fill)
             decisions.append(
                 PaperSignalDecision(
@@ -221,16 +277,172 @@ class PaperTradingEngine:
                 high_water_mark=account.high_water_mark,
                 current_drawdown_pct=account.current_drawdown_pct,
                 daily_pnl=account.daily_pnl,
-                open_positions=tuple(positions),
+                open_positions=tuple(active.position for active in active_positions),
             )
 
+        account = _close_due_positions(
+            active_positions=active_positions,
+            account=account,
+            timestamp_ms=None,
+            closed_positions=closed_positions,
+            closed_trades=closed_trades,
+            exit_events=exit_events,
+            equity_curve=equity_curve,
+            review_log=review_log,
+            force_close=True,
+        )
         return PaperTradingResult(
             decisions=tuple(decisions),
             fills=tuple(fills),
             positions=tuple(positions),
+            closed_positions=tuple(closed_positions),
+            closed_trades=tuple(closed_trades),
+            exit_events=tuple(exit_events),
+            equity_curve=tuple(equity_curve),
             review_log=tuple(review_log),
             account=account,
         )
+
+
+def _close_due_positions(
+    *,
+    active_positions: list[_ActivePaperPosition],
+    account: AccountState,
+    timestamp_ms: int | None,
+    closed_positions: list[PositionState],
+    closed_trades: list[BacktestFillResult],
+    exit_events: list[BacktestExitEvent],
+    equity_curve: list[EquityPoint],
+    review_log: list[ReviewLogEntry],
+    force_close: bool,
+) -> AccountState:
+    remaining: list[_ActivePaperPosition] = []
+    current_account = account
+    for active in active_positions:
+        close_timestamp = active.close_result.exit_timestamp_ms
+        is_due = force_close or (
+            timestamp_ms is not None and close_timestamp is not None and close_timestamp < timestamp_ms
+        )
+        if not is_due:
+            remaining.append(active)
+            continue
+
+        current_account = _close_position(
+            active=active,
+            account=current_account,
+            closed_positions=closed_positions,
+            closed_trades=closed_trades,
+            exit_events=exit_events,
+            equity_curve=equity_curve,
+            review_log=review_log,
+        )
+
+    active_positions[:] = remaining
+    return AccountState(
+        equity=current_account.equity,
+        high_water_mark=current_account.high_water_mark,
+        current_drawdown_pct=current_account.current_drawdown_pct,
+        daily_pnl=current_account.daily_pnl,
+        open_positions=tuple(active.position for active in active_positions),
+    )
+
+
+def _close_position(
+    *,
+    active: _ActivePaperPosition,
+    account: AccountState,
+    closed_positions: list[PositionState],
+    closed_trades: list[BacktestFillResult],
+    exit_events: list[BacktestExitEvent],
+    equity_curve: list[EquityPoint],
+    review_log: list[ReviewLogEntry],
+) -> AccountState:
+    close_result = active.close_result
+    closed_positions.append(active.position)
+    closed_trades.append(close_result)
+    exit_events.extend(close_result.exit_events)
+
+    equity = account.equity + close_result.net_pnl
+    high_water_mark = max(account.high_water_mark, equity)
+    drawdown_pct = 0.0 if high_water_mark <= 0 else max(0.0, (high_water_mark - equity) / high_water_mark)
+    daily_pnl = account.daily_pnl + close_result.net_pnl
+    equity_curve.append(
+        EquityPoint(
+            timestamp_ms=close_result.exit_timestamp_ms,
+            equity=equity,
+            drawdown_pct=drawdown_pct,
+        )
+    )
+    for event in close_result.exit_events:
+        review_log.append(
+            _review_entry(
+                active.signal,
+                "exit_recorded",
+                event.event_type,
+                timestamp_ms=event.timestamp_ms,
+                payload={
+                    "price": event.price,
+                    "quantity": event.quantity,
+                    "gross_pnl": event.gross_pnl,
+                    "net_pnl": event.net_pnl,
+                    "cost": event.cost_estimate.total,
+                },
+            )
+        )
+    review_log.extend(
+        (
+            _review_entry(
+                active.signal,
+                "position_closed",
+                close_result.exit_reason,
+                timestamp_ms=close_result.exit_timestamp_ms,
+                payload={
+                    "entry_price": close_result.entry_price,
+                    "exit_price": close_result.exit_price,
+                    "net_pnl": close_result.net_pnl,
+                    "r_multiple": close_result.r_multiple,
+                    "holding_bars": close_result.holding_bars,
+                },
+            ),
+            _review_entry(
+                active.signal,
+                "equity_updated",
+                "updated",
+                timestamp_ms=close_result.exit_timestamp_ms,
+                payload={
+                    "equity": equity,
+                    "drawdown_pct": drawdown_pct,
+                    "daily_pnl": daily_pnl,
+                },
+            ),
+        )
+    )
+    return AccountState(
+        equity=equity,
+        high_water_mark=high_water_mark,
+        current_drawdown_pct=drawdown_pct,
+        daily_pnl=daily_pnl,
+        open_positions=(),
+    )
+
+
+def _to_backtest_config(config: PaperBrokerConfig) -> BacktestExecutionConfig:
+    return BacktestExecutionConfig(
+        initial_equity=config.initial_equity,
+        max_holding_bars=config.max_holding_bars,
+        fee_rate=config.fee_rate,
+        spread=config.spread,
+        slippage=config.slippage,
+        funding=config.funding,
+        conservative_same_bar=config.conservative_same_bar,
+        point_value=config.point_value,
+        enable_advanced_exits=config.enable_advanced_exits,
+        partial_take_profit_r=config.partial_take_profit_r,
+        partial_take_profit_pct=config.partial_take_profit_pct,
+        move_stop_to_true_breakeven=config.move_stop_to_true_breakeven,
+        chandelier_period=config.chandelier_period,
+        chandelier_atr_multiple=config.chandelier_atr_multiple,
+    )
 
 
 def _estimate_entry_cost(

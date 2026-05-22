@@ -9,6 +9,7 @@ from trading_system.backtest.execution import (
     BacktestSummary,
     EquityPoint,
     SignalOrderAdapter,
+    simulate_approved_fill,
 )
 from trading_system.backtest.scanner import (
     BacktestProfileScan,
@@ -68,4 +69,5 @@ __all__ = (
     "TradeLogEntry",
     "infer_strategy_family",
     "rank_scan_groups",
+    "simulate_approved_fill",
 )
