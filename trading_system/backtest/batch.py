@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING, Sequence
 
 from trading_system.backtest.execution import BacktestExecutionEngine
 from trading_system.backtest.risk import RiskEngine
-from trading_system.backtest.scanner import BacktestRollingScanner, BacktestScanGroupSummary, BacktestScanResult
+from trading_system.backtest.scanner import (
+    BacktestRollingScanner,
+    BacktestScanConfig,
+    BacktestScanGroupSummary,
+    BacktestScanResult,
+)
 from trading_system.strategies.base import Strategy, StrategyContext, StrategyMetadata, StrategySignal
 
 if TYPE_CHECKING:
@@ -54,10 +59,12 @@ class BacktestBatchRunner:
         repository,
         preset: BacktestPresetConfig,
         strategy: Strategy,
+        scan_config: BacktestScanConfig | None = None,
     ):
         self.repository = repository
         self.preset = preset
         self.strategy = strategy
+        self.scan_config = scan_config
 
     def run(self) -> BacktestBatchReport:
         strategy = _ConfiguredStrategy(self.strategy, self.preset)
@@ -69,7 +76,7 @@ class BacktestBatchRunner:
             repository=self.repository,
             strategy=strategy,
             execution_engine=execution_engine,
-            config=self.preset.to_scan_config(),
+            config=self.scan_config or self.preset.to_scan_config(),
         )
         scan_result = scanner.scan()
         ranked_groups = rank_scan_groups(scan_result.group_summaries, self.preset.ranking)

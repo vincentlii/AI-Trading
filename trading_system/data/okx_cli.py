@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
 
@@ -52,7 +54,7 @@ class Instrument:
 
 class OkxCliMarketData:
     def __init__(self, okx_command: str | None = None, runner: Runner | None = None):
-        self.okx_command = okx_command if okx_command is not None else os.environ.get("OKX_CLI_COMMAND") or "okx"
+        self.okx_command = okx_command if okx_command is not None else _default_okx_command()
         self.runner = runner or subprocess.run
 
     def get_ticker(self, inst_id: str) -> Ticker:
@@ -96,12 +98,21 @@ class OkxCliMarketData:
 
     def _run_json(self, args: Sequence[str]):
         command = [self.okx_command, *args, "--json"]
-        completed = self.runner(
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            completed = self.runner(
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except FileNotFoundError as error:
+            raise FileNotFoundError(
+                "OKX CLI command not found. "
+                "Pass --okx-command, set OKX_CLI_COMMAND, or add okx to PATH. "
+                f"resolved_command={self.okx_command}"
+            ) from error
         return json.loads(completed.stdout)
 
 
@@ -117,6 +128,24 @@ def _parse_candle(row: Sequence[str]) -> Candle:
         volume_currency_quote=float(row[7]),
         is_confirmed=row[8] == "1",
     )
+
+
+def _default_okx_command() -> str:
+    configured = os.environ.get("OKX_CLI_COMMAND")
+    if configured:
+        return configured
+
+    discovered = shutil.which("okx")
+    if discovered:
+        return discovered
+
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        npm_command = Path(appdata) / "npm" / "okx.cmd"
+        if npm_command.exists():
+            return str(npm_command)
+
+    return "okx"
 
 
 def _parse_instrument(row: Mapping[str, str]) -> Instrument:

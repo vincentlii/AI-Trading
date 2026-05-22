@@ -1,6 +1,7 @@
 import json
 import unittest
 from unittest.mock import patch
+from pathlib import Path
 
 from trading_system.data.okx_cli import OkxCliMarketData
 
@@ -36,6 +37,8 @@ class OkxCliMarketDataTests(unittest.TestCase):
 
         self.assertEqual(calls[0][0], ["okx", "market", "ticker", "BTC-USDT", "--json"])
         self.assertTrue(calls[0][1]["check"])
+        self.assertEqual(calls[0][1]["encoding"], "utf-8")
+        self.assertEqual(calls[0][1]["errors"], "replace")
         self.assertEqual(ticker.inst_id, "BTC-USDT")
         self.assertEqual(ticker.last, 79888.0)
         self.assertEqual(ticker.open_24h, 81683.3)
@@ -123,6 +126,24 @@ class OkxCliMarketDataTests(unittest.TestCase):
             client.get_candles("BTC-USDT", bar="1H", limit=1)
 
         self.assertEqual(calls[0][0], "okx-sandbox")
+
+    def test_constructor_falls_back_to_windows_npm_okx_command(self):
+        calls = []
+
+        def runner(command, **kwargs):
+            calls.append(command)
+            return FakeCompletedProcess(json.dumps([]))
+
+        appdata = Path("C:/Users/test/AppData/Roaming")
+        with (
+            patch.dict("os.environ", {"APPDATA": str(appdata)}, clear=True),
+            patch("shutil.which", return_value=None),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            client = OkxCliMarketData(runner=runner)
+            client.get_candles("BTC-USDT", bar="1H", limit=1)
+
+        self.assertEqual(calls[0][0], str(appdata / "npm" / "okx.cmd"))
 
     def test_explicit_okx_command_takes_precedence_over_environment(self):
         calls = []

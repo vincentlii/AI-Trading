@@ -34,6 +34,7 @@ class BacktestScanConfig:
     profile_keys: tuple[str, ...] = ("B", "C", "A")
     start_ms: int | None = None
     end_ms: int | None = None
+    max_entry_windows: int | None = None
     max_context_bars_by_timeframe: Mapping[str, int] = field(default_factory=dict)
 
 
@@ -143,7 +144,11 @@ class BacktestRollingScanner:
         inputs: list[BacktestSignalInput] = []
         max_holding_bars = self.execution_engine.config.max_holding_bars
 
-        for index in range(0, max(0, len(entry_candles) - 1)):
+        start_index = 0
+        if self.config.max_entry_windows is not None and self.config.max_entry_windows > 0:
+            start_index = max(0, len(entry_candles) - self.config.max_entry_windows - 1)
+
+        for index in range(start_index, max(0, len(entry_candles) - 1)):
             signal_timestamp_ms = int(getattr(entry_candles[index], "timestamp_ms"))
             context = StrategyContext(
                 symbol=target.canonical_symbol,

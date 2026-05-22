@@ -154,6 +154,48 @@ class OkxHistoryDownloaderTests(unittest.TestCase):
             self.assertEqual(summary.saved_count, 3)
             self.assertEqual([item.timestamp_ms for item in repository.list_candles("BTC-USDT", "1H")], [1000, 2000, 3000])
 
+    def test_download_symbol_bar_stops_when_target_min_candles_is_reached(self):
+        with TemporaryDirectory() as temporary_directory:
+            repository = self.repository(temporary_directory)
+            client = FakeOkxClient(
+                pages={
+                    ("BTC-USDT", "1H", None): (
+                        candle(3000, close=3.0),
+                        candle(2000, close=2.0),
+                    ),
+                    ("BTC-USDT", "1H", 2000): (candle(1000, close=1.0),),
+                    ("BTC-USDT", "1H", 1000): (candle(0, close=0.5),),
+                }
+            )
+            downloader = OkxHistoryDownloader(client, repository)
+
+            summary = downloader.download_symbol_bar("BTC-USDT", "1H", limit=2, max_pages=5, target_min_candles=3)
+
+            self.assertEqual([call["after"] for call in client.calls], [None, 2000])
+            self.assertEqual(summary.pages_requested, 5)
+            self.assertEqual(summary.pages_fetched, 2)
+            self.assertEqual(summary.row_count, 3)
+
+    def test_download_symbol_bar_stops_when_start_timestamp_is_reached(self):
+        with TemporaryDirectory() as temporary_directory:
+            repository = self.repository(temporary_directory)
+            client = FakeOkxClient(
+                pages={
+                    ("BTC-USDT", "1H", None): (
+                        candle(3000, close=3.0),
+                        candle(2000, close=2.0),
+                    ),
+                    ("BTC-USDT", "1H", 2000): (candle(1000, close=1.0),),
+                }
+            )
+            downloader = OkxHistoryDownloader(client, repository)
+
+            summary = downloader.download_symbol_bar("BTC-USDT", "1H", limit=2, max_pages=5, start_ts_ms=1500)
+
+            self.assertEqual([call["after"] for call in client.calls], [None, 2000])
+            self.assertEqual(summary.earliest_ts_ms, 1000)
+            self.assertEqual(summary.row_count, 3)
+
 
 class DownloadOkxHistoryScriptTests(unittest.TestCase):
     def test_parse_args_uses_safe_small_defaults(self):
@@ -164,6 +206,9 @@ class DownloadOkxHistoryScriptTests(unittest.TestCase):
         self.assertEqual(args.bars, ["5m", "15m", "1H", "4H", "1D"])
         self.assertEqual(args.limit, 100)
         self.assertEqual(args.max_pages, 1)
+        self.assertIsNone(args.target_min_candles)
+        self.assertIsNone(args.start_date)
+        self.assertFalse(args.quality_check_after_download)
         self.assertIsNone(args.okx_command)
 
     def test_parse_args_accepts_custom_download_scope(self):
@@ -181,6 +226,11 @@ class DownloadOkxHistoryScriptTests(unittest.TestCase):
                 "10",
                 "--max-pages",
                 "2",
+                "--target-min-candles",
+                "1000",
+                "--start-date",
+                "2023-01-01",
+                "--quality-check-after-download",
                 "--okx-command",
                 "okx-live",
             ]
@@ -191,6 +241,9 @@ class DownloadOkxHistoryScriptTests(unittest.TestCase):
         self.assertEqual(args.bars, ["15m", "1H"])
         self.assertEqual(args.limit, 10)
         self.assertEqual(args.max_pages, 2)
+        self.assertEqual(args.target_min_candles, 1000)
+        self.assertEqual(args.start_date, "2023-01-01")
+        self.assertTrue(args.quality_check_after_download)
         self.assertEqual(args.okx_command, "okx-live")
 
 

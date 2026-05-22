@@ -117,6 +117,29 @@ class BacktestRollingScannerTests(unittest.TestCase):
         self.assertEqual(run.result.fills[0].exit_reason, "target")
         self.assertGreaterEqual(len(strategy.contexts), 3)
 
+    def test_scan_can_limit_recent_entry_windows_without_changing_default_behavior(self):
+        repository = repository_with_profile_b_data()
+        strategy = OneSignalStrategy()
+        execution_engine = BacktestExecutionEngine(
+            risk_engine=RiskEngine(RiskParameters()),
+            config=BacktestExecutionConfig(max_holding_bars=2),
+        )
+        scanner = BacktestRollingScanner(
+            repository=repository,
+            strategy=strategy,
+            execution_engine=execution_engine,
+            config=BacktestScanConfig(
+                targets=(BacktestScanTarget(canonical_symbol="BTC/USDT", inst_id="BTC-USDT"),),
+                profile_keys=("B",),
+                max_entry_windows=1,
+            ),
+        )
+
+        result = scanner.scan()
+
+        self.assertEqual(len(strategy.contexts), 1)
+        self.assertEqual(result.profile_runs[0].signal_count, 1)
+
     def test_group_summaries_are_split_by_symbol_profile_strategy_family_and_setup(self):
         result = self.scanner(repository_with_profile_b_data(), OneSignalStrategy()).scan()
 
