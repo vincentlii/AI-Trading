@@ -14,6 +14,7 @@ from trading_system.data.universe import required_okx_bars_for_profiles
 from trading_system.diagnostics.rejection_detail import build_rejection_detail_snapshot
 from trading_system.diagnostics.signal_funnel import build_signal_funnel_rows
 from trading_system.reports.performance import build_performance_report
+from trading_system.simulation.review_log import read_review_log
 from trading_system.strategies.base import Strategy
 from trading_system.timeframe_profiles import get_profile
 
@@ -22,6 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PRESET_PATH = PROJECT_ROOT / "configs" / "presets" / "btc_eth_p4_4.toml"
 DEFAULT_DB_PATH = PROJECT_ROOT / "storage" / "history.duckdb"
 DEFAULT_PROPOSALS_DIR = PROJECT_ROOT / "configs" / "proposals"
+DEFAULT_REVIEW_LOG_PATH = PROJECT_ROOT / "storage" / "paper" / "review_log.jsonl"
 DASHBOARD_MAX_ENTRY_WINDOWS = 200
 DASHBOARD_CONTEXT_BARS = 320
 SIGNAL_FUNNEL_STAGE_ORDER = (
@@ -62,6 +64,11 @@ class DashboardSnapshot:
     volume_distribution_rows: tuple[dict[str, object], ...]
     risk_rejection_rows: tuple[dict[str, object], ...]
     near_miss_rows: tuple[dict[str, object], ...]
+    paper_review_log_rows: tuple[dict[str, object], ...]
+    paper_equity_rows: tuple[dict[str, object], ...]
+    paper_trade_rows: tuple[dict[str, object], ...]
+    paper_failure_rows: tuple[dict[str, object], ...]
+    paper_review_log_invalid_rows: tuple[dict[str, object], ...]
 
 
 def build_default_dashboard_snapshot(
@@ -69,6 +76,7 @@ def build_default_dashboard_snapshot(
     preset_path: str | Path = DEFAULT_PRESET_PATH,
     db_path: str | Path = DEFAULT_DB_PATH,
     proposals_dir: str | Path | None = DEFAULT_PROPOSALS_DIR,
+    review_log_path: str | Path | None = DEFAULT_REVIEW_LOG_PATH,
 ) -> DashboardSnapshot:
     from trading_system.data.history import DuckDbCandleRepository
     from trading_system.strategies.trend_price_volume_v1 import TrendPriceVolumeStrategy
@@ -80,6 +88,7 @@ def build_default_dashboard_snapshot(
         preset=preset,
         strategy=TrendPriceVolumeStrategy(),
         proposals_dir=proposals_dir,
+        review_log_path=review_log_path,
     )
 
 
@@ -89,6 +98,7 @@ def build_dashboard_snapshot(
     preset: BacktestPresetConfig,
     strategy: Strategy,
     proposals_dir: str | Path | None = DEFAULT_PROPOSALS_DIR,
+    review_log_path: str | Path | None = DEFAULT_REVIEW_LOG_PATH,
 ) -> DashboardSnapshot:
     report = BacktestBatchRunner(
         repository=repository,
@@ -120,6 +130,7 @@ def build_dashboard_snapshot(
         strategy=strategy,
         max_windows_per_profile=200,
     )
+    paper_review = _build_paper_review_rows(review_log_path)
 
     return DashboardSnapshot(
         config_version=report.config_version,
@@ -136,6 +147,9 @@ def build_dashboard_snapshot(
             rejection_detail.volume_rejection_rows,
             rejection_detail.risk_rejection_rows,
             rejection_detail.near_miss_rows,
+            paper_review["review_log_rows"],
+            paper_review["trade_rows"],
+            paper_review["failure_rows"],
             DASHBOARD_MAX_ENTRY_WINDOWS,
         ),
         ranking_rows=ranking_rows,
@@ -152,6 +166,11 @@ def build_dashboard_snapshot(
         volume_distribution_rows=rejection_detail.volume_distribution_rows,
         risk_rejection_rows=rejection_detail.risk_rejection_rows,
         near_miss_rows=rejection_detail.near_miss_rows,
+        paper_review_log_rows=paper_review["review_log_rows"],
+        paper_equity_rows=paper_review["equity_rows"],
+        paper_trade_rows=paper_review["trade_rows"],
+        paper_failure_rows=paper_review["failure_rows"],
+        paper_review_log_invalid_rows=paper_review["invalid_rows"],
     )
 
 
@@ -245,6 +264,76 @@ def _build_proposal_rows(proposals_dir: str | Path | None) -> tuple[dict[str, ob
     return tuple(rows)
 
 
+def _build_paper_review_rows(review_log_path: str | Path | None) -> dict[str, tuple[dict[str, object], ...]]:
+    if review_log_path is None:
+        return {
+            "review_log_rows": (),
+            "equity_rows": (),
+            "trade_rows": (),
+            "failure_rows": (),
+            "invalid_rows": (),
+        }
+
+    result = read_review_log(review_log_path)
+    review_rows = tuple(_review_log_row(entry) for entry in result.entries)
+    equity_rows = tuple(row for row in review_rows if row["event_type"] == "equity_updated")
+    trade_rows = tuple(row for row in review_rows if row["event_type"] == "position_closed")
+    failure_rows = []
+    for row in trade_rows:
+        failure = _paper_failure_row(row)
+        if failure is not None:
+            failure_rows.append(failure)
+    return {
+        "review_log_rows": review_rows,
+        "equity_rows": equity_rows,
+        "trade_rows": trade_rows,
+        "failure_rows": tuple(failure_rows),
+        "invalid_rows": result.invalid_rows,
+    }
+
+
+def _review_log_row(entry) -> dict[str, object]:
+    row = {
+        "event_type": entry.event_type,
+        "timestamp_ms": entry.timestamp_ms,
+        "symbol": entry.symbol,
+        "venue": entry.venue,
+        "strategy_name": entry.strategy_name,
+        "strategy_version": entry.strategy_version,
+        "setup_type": entry.setup_type,
+        "status": entry.status,
+        "reason_codes": entry.reason_codes,
+    }
+    row.update({f"payload_{key}": value for key, value in entry.payload.items()})
+    return row
+
+
+def _paper_failure_row(row: Mapping[str, object]) -> dict[str, object] | None:
+    net_pnl = _as_float(row.get("payload_net_pnl"))
+    cost = _as_float(row.get("payload_cost"))
+    r_multiple = _as_float(row.get("payload_r_multiple"))
+    exit_reason = str(row.get("status", ""))
+    attribution = ""
+    if net_pnl < 0:
+        attribution = "losing_trade"
+    elif exit_reason == "time_exit":
+        attribution = "time_exit"
+    elif cost > 0 and r_multiple < 0.25:
+        attribution = "cost_drag_or_low_net_r"
+    if not attribution:
+        return None
+    return {
+        "symbol": row.get("symbol", ""),
+        "timestamp_ms": row.get("timestamp_ms"),
+        "setup_type": row.get("setup_type", ""),
+        "exit_reason": exit_reason,
+        "net_pnl": net_pnl,
+        "r_multiple": r_multiple,
+        "cost": cost,
+        "attribution": attribution,
+    }
+
+
 def _build_summary(
     ranking_rows: tuple[dict[str, object], ...],
     quality_rows: tuple[dict[str, object], ...],
@@ -257,6 +346,9 @@ def _build_summary(
     volume_rejection_rows: tuple[dict[str, object], ...],
     risk_rejection_rows: tuple[dict[str, object], ...],
     near_miss_rows: tuple[dict[str, object], ...],
+    paper_review_log_rows: tuple[dict[str, object], ...],
+    paper_trade_rows: tuple[dict[str, object], ...],
+    paper_failure_rows: tuple[dict[str, object], ...],
     dashboard_max_entry_windows: int,
 ) -> dict[str, object]:
     summary = {
@@ -278,6 +370,9 @@ def _build_summary(
         "volume_rejection_groups": len(volume_rejection_rows),
         "risk_rejection_groups": len(risk_rejection_rows),
         "near_miss_candidates": len(near_miss_rows),
+        "paper_review_log_events": len(paper_review_log_rows),
+        "paper_trade_events": len(paper_trade_rows),
+        "paper_failure_cases": len(paper_failure_rows),
         "dashboard_max_entry_windows": dashboard_max_entry_windows,
     }
     summary.update(performance_summary)

@@ -18,6 +18,7 @@ class P6GateConfig:
     coverage_thresholds: CoverageThresholds | None = None
     require_formal_backtest: bool = True
     max_audit_windows: int = 200
+    max_position_aware_windows: int | None = 500
 
 
 @dataclass(frozen=True)
@@ -50,7 +51,7 @@ def build_p6_gate_report(
     active_config = config or P6GateConfig()
     coverage_rows = _coverage_gate_rows(repository, preset, active_config)
     audit_rows = _no_lookahead_gate_rows(repository, preset, active_config)
-    position_aware_report = _run_position_aware_report(repository, preset, strategy)
+    position_aware_report = _run_position_aware_report(repository, preset, strategy, active_config)
     position_rows = _position_aware_gate_rows(position_aware_report)
     cost_rows = _cost_after_r_gate_rows(position_aware_report)
     failure_rows = build_failure_attribution_rows(position_aware_report.scan_result)
@@ -157,8 +158,17 @@ def _no_lookahead_gate_rows(repository, preset: BacktestPresetConfig, config: P6
     return tuple(rows)
 
 
-def _run_position_aware_report(repository, preset: BacktestPresetConfig, strategy: Strategy) -> BacktestBatchReport:
-    scan_config = replace(preset.to_scan_config(), position_aware=True)
+def _run_position_aware_report(
+    repository,
+    preset: BacktestPresetConfig,
+    strategy: Strategy,
+    config: P6GateConfig,
+) -> BacktestBatchReport:
+    scan_config = replace(
+        preset.to_scan_config(),
+        position_aware=True,
+        max_entry_windows=config.max_position_aware_windows,
+    )
     return BacktestBatchRunner(
         repository=repository,
         preset=preset,

@@ -12,6 +12,7 @@ from trading_system.dashboard.panel import (
     DEFAULT_DB_PATH,
     DEFAULT_PRESET_PATH,
     DEFAULT_PROPOSALS_DIR,
+    DEFAULT_REVIEW_LOG_PATH,
     build_default_dashboard_snapshot,
 )
 from trading_system.dashboard.presentation import (
@@ -36,6 +37,7 @@ DASHBOARD_TABS = (
     "绩效报告",
     "数据质量",
     "Proposal 队列",
+    "P6 Paper",
     "系统说明",
 )
 
@@ -55,12 +57,14 @@ def main() -> None:
         preset_path = st.text_input("Preset", value=str(DEFAULT_PRESET_PATH))
         db_path = st.text_input("DuckDB", value=str(DEFAULT_DB_PATH))
         proposals_dir = st.text_input("Proposals", value=str(DEFAULT_PROPOSALS_DIR))
+        review_log_path = st.text_input("ReviewLog", value=str(DEFAULT_REVIEW_LOG_PATH))
         refresh = st.button("刷新", type="primary")
 
     snapshot = _load_snapshot(
         preset_path=preset_path,
         db_path=db_path,
         proposals_dir=proposals_dir,
+        review_log_path=review_log_path,
         refresh=refresh,
     )
 
@@ -92,23 +96,27 @@ def main() -> None:
         _render_proposal_queue(st, snapshot)
 
     with tabs[8]:
+        _render_p6_paper(st, snapshot)
+
+    with tabs[9]:
         _render_system_info(st, snapshot)
 
 
-def _load_snapshot(*, preset_path: str, db_path: str, proposals_dir: str, refresh: bool):
+def _load_snapshot(*, preset_path: str, db_path: str, proposals_dir: str, review_log_path: str, refresh: bool):
     import streamlit as st
 
     @st.cache_data(show_spinner="加载本地回测、数据质量与信号诊断状态...")
-    def cached_snapshot(preset_value: str, db_value: str, proposals_value: str, schema_version: str):
+    def cached_snapshot(preset_value: str, db_value: str, proposals_value: str, review_log_value: str, schema_version: str):
         return build_default_dashboard_snapshot(
             preset_path=Path(preset_value),
             db_path=Path(db_value),
             proposals_dir=Path(proposals_value) if proposals_value else None,
+            review_log_path=Path(review_log_value) if review_log_value else None,
         )
 
     if refresh:
         cached_snapshot.clear()
-    return cached_snapshot(preset_path, db_path, proposals_dir, "p5_cockpit_v1")
+    return cached_snapshot(preset_path, db_path, proposals_dir, review_log_path, "p5_cockpit_v2")
 
 
 def _render_overview(st, snapshot) -> None:
@@ -208,6 +216,21 @@ def _render_proposal_queue(st, snapshot) -> None:
         )
     )
     _render_chinese_table(st, "proposal", _snapshot_rows(snapshot, "proposal_rows"))
+
+
+def _render_p6_paper(st, snapshot) -> None:
+    st.subheader("P6 Paper ReviewLog")
+    _render_table(st, _snapshot_rows(snapshot, "paper_review_log_rows"))
+    st.subheader("Paper Equity")
+    _render_table(st, _snapshot_rows(snapshot, "paper_equity_rows"))
+    st.subheader("Paper Trades")
+    _render_table(st, _snapshot_rows(snapshot, "paper_trade_rows"))
+    st.subheader("Failure Attribution")
+    _render_table(st, _snapshot_rows(snapshot, "paper_failure_rows"))
+    invalid_rows = _snapshot_rows(snapshot, "paper_review_log_invalid_rows")
+    if invalid_rows:
+        st.subheader("Invalid ReviewLog Rows")
+        _render_table(st, invalid_rows)
 
 
 def _render_system_info(st, snapshot) -> None:

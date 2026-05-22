@@ -146,6 +146,7 @@ class P5DashboardAppTests(unittest.TestCase):
                 "绩效报告",
                 "数据质量",
                 "Proposal 队列",
+                "P6 Paper",
                 "系统说明",
             ),
         )

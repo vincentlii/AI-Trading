@@ -6,6 +6,8 @@ from trading_system.config import ProposalChange, load_backtest_preset, make_par
 from trading_system.data.history import CandleRepository
 from trading_system.data.okx_cli import Candle
 from trading_system.data.quality import bar_duration_ms
+from trading_system.simulation import ReviewLogEntry
+from trading_system.simulation.review_log import append_review_log_entries
 from trading_system.strategies.base import Strategy, StrategyContext, StrategyMetadata, StrategySignal
 from trading_system.timeframe_profiles import get_profile
 
@@ -107,12 +109,43 @@ class DashboardPanelTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory(dir=PROJECT_ROOT) as temp_dir:
+            review_log_path = Path(temp_dir) / "review_log.jsonl"
+            append_review_log_entries(
+                review_log_path,
+                (
+                    ReviewLogEntry(
+                        event_type="position_closed",
+                        timestamp_ms=1_700_000_000_000,
+                        symbol="BTC/USDT",
+                        venue="okx",
+                        strategy_name="trend_price_volume",
+                        strategy_version="v1",
+                        setup_type="trend_continuation",
+                        status="time_exit",
+                        reason_codes=(),
+                        payload={"net_pnl": -10.0, "r_multiple": -0.1, "cost": 1.0},
+                    ),
+                    ReviewLogEntry(
+                        event_type="equity_updated",
+                        timestamp_ms=1_700_000_000_000,
+                        symbol="BTC/USDT",
+                        venue="okx",
+                        strategy_name="trend_price_volume",
+                        strategy_version="v1",
+                        setup_type="trend_continuation",
+                        status="updated",
+                        reason_codes=(),
+                        payload={"equity": 99_990.0, "drawdown_pct": 0.0001},
+                    ),
+                ),
+            )
             proposal_path = save_parameter_proposal(proposal, Path(temp_dir))
             snapshot = build_dashboard_snapshot(
                 repository=_repository_with_btc_eth_abc_data(),
                 preset=preset,
                 strategy=OneSignalPerProfileStrategy(),
                 proposals_dir=Path(temp_dir),
+                review_log_path=review_log_path,
             )
 
         self.assertEqual(snapshot.config_version, preset.config_version)
@@ -156,6 +189,11 @@ class DashboardPanelTests(unittest.TestCase):
         self.assertIn("volume_rejection_groups", snapshot.summary)
         self.assertIn("risk_rejection_groups", snapshot.summary)
         self.assertIn("near_miss_candidates", snapshot.summary)
+        self.assertEqual(len(snapshot.paper_review_log_rows), 2)
+        self.assertEqual(len(snapshot.paper_trade_rows), 1)
+        self.assertEqual(len(snapshot.paper_equity_rows), 1)
+        self.assertEqual(len(snapshot.paper_failure_rows), 1)
+        self.assertEqual(snapshot.summary["paper_review_log_events"], 2)
         self.assertEqual(snapshot.summary["dashboard_max_entry_windows"], 200)
 
 
