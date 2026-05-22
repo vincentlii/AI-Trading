@@ -70,6 +70,40 @@ class OneSignalStrategy(Strategy):
         )
 
 
+class RepeatedSignalStrategy(Strategy):
+    metadata = StrategyMetadata(
+        name="test_strategy",
+        version="v1",
+        description="Repeated scanner strategy.",
+        required_timeframe_profile_keys=("B",),
+        required_indicators=(),
+        documentation_path="",
+        supported_symbols=("BTC/USDT",),
+        setup_types=("trend_continuation",),
+    )
+
+    def generate_signals(self, context: StrategyContext) -> tuple[StrategySignal, ...]:
+        entry = context.candles_by_timeframe["15m"]
+        if len(entry) < 3:
+            return ()
+        return (
+            StrategySignal(
+                strategy_name=self.metadata.name,
+                strategy_version=self.metadata.version,
+                setup_type="trend_continuation",
+                symbol=context.symbol,
+                venue=context.venue,
+                timeframe_group=context.timeframe_group,
+                direction="long",
+                entry_zone={"low": 99.0, "high": 101.0},
+                invalidation_level=95.0,
+                target_hint={"target_price": 110.0},
+                trend_evidence={"atr": 3.0},
+                explanation_payload={"strategy_family": "breakout_pullback_continuation"},
+            ),
+        )
+
+
 def repository_with_profile_b_data() -> CandleRepository:
     repository = CandleRepository()
     repository.save_many(
@@ -84,6 +118,18 @@ def repository_with_profile_b_data() -> CandleRepository:
     )
     repository.save_many("BTC-USDT", "1H", tuple(candle(index, 100.0, 103.0, 98.0, 101.0) for index in (1, 2, 3)))
     repository.save_many("BTC-USDT", "4H", tuple(candle(index, 100.0, 103.0, 98.0, 101.0) for index in (1, 2, 3)))
+    return repository
+
+
+def repository_with_repeated_signal_data() -> CandleRepository:
+    repository = CandleRepository()
+    repository.save_many(
+        "BTC-USDT",
+        "15m",
+        tuple(candle(index, 100.0, 104.0, 99.0, 101.0) for index in range(1, 9)),
+    )
+    repository.save_many("BTC-USDT", "1H", tuple(candle(index, 100.0, 103.0, 98.0, 101.0) for index in range(1, 9)))
+    repository.save_many("BTC-USDT", "4H", tuple(candle(index, 100.0, 103.0, 98.0, 101.0) for index in range(1, 9)))
     return repository
 
 
@@ -153,6 +199,39 @@ class BacktestRollingScannerTests(unittest.TestCase):
         self.assertEqual(summary.signal_count, 1)
         self.assertEqual(summary.trade_count, 1)
         self.assertGreater(summary.net_profit, 0.0)
+
+    def test_position_aware_scan_suppresses_overlapping_signals_when_enabled(self):
+        repository = repository_with_repeated_signal_data()
+        execution_engine = BacktestExecutionEngine(
+            risk_engine=RiskEngine(RiskParameters()),
+            config=BacktestExecutionConfig(max_holding_bars=3),
+        )
+        base_config = BacktestScanConfig(
+            targets=(BacktestScanTarget(canonical_symbol="BTC/USDT", inst_id="BTC-USDT"),),
+            profile_keys=("B",),
+        )
+        default_result = BacktestRollingScanner(
+            repository=repository,
+            strategy=RepeatedSignalStrategy(),
+            execution_engine=execution_engine,
+            config=base_config,
+        ).scan()
+        position_aware_result = BacktestRollingScanner(
+            repository=repository,
+            strategy=RepeatedSignalStrategy(),
+            execution_engine=execution_engine,
+            config=BacktestScanConfig(
+                targets=base_config.targets,
+                profile_keys=base_config.profile_keys,
+                position_aware=True,
+            ),
+        ).scan()
+
+        default_run = default_result.profile_runs[0]
+        position_aware_run = position_aware_result.profile_runs[0]
+
+        self.assertGreater(default_run.signal_count, position_aware_run.signal_count)
+        self.assertGreater(position_aware_run.suppressed_overlap_count, 0)
 
     def test_missing_profile_timeframe_is_skipped_without_error(self):
         repository = CandleRepository()

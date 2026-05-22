@@ -36,6 +36,7 @@ class BacktestScanConfig:
     end_ms: int | None = None
     max_entry_windows: int | None = None
     max_context_bars_by_timeframe: Mapping[str, int] = field(default_factory=dict)
+    position_aware: bool = False
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,7 @@ class BacktestProfileScan:
     candle_counts_by_timeframe: Mapping[str, int]
     signal_count: int
     result: BacktestRunResult
+    suppressed_overlap_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -142,6 +144,8 @@ class BacktestRollingScanner:
 
         entry_candles = candles_by_timeframe[profile.entry_timeframe]
         inputs: list[BacktestSignalInput] = []
+        active_until_by_key: dict[tuple[str, str, str, str], int | None] = {}
+        suppressed_overlap_count = 0
         max_holding_bars = self.execution_engine.config.max_holding_bars
 
         start_index = 0
@@ -177,7 +181,22 @@ class BacktestRollingScanner:
                 continue
 
             for signal in self.strategy.generate_signals(context):
-                inputs.append(BacktestSignalInput(signal=signal, execution_candles=execution_candles))
+                input_item = BacktestSignalInput(signal=signal, execution_candles=execution_candles)
+                if self.config.position_aware and _overlaps_active_position(
+                    signal,
+                    input_item,
+                    active_until_by_key,
+                ):
+                    suppressed_overlap_count += 1
+                    continue
+                inputs.append(input_item)
+                if self.config.position_aware:
+                    _record_active_position_until(
+                        signal,
+                        input_item,
+                        self.execution_engine,
+                        active_until_by_key,
+                    )
 
         return BacktestProfileScan(
             target=target,
@@ -187,6 +206,7 @@ class BacktestRollingScanner:
             candle_counts_by_timeframe=counts,
             signal_count=len(inputs),
             result=self.execution_engine.run(inputs),
+            suppressed_overlap_count=suppressed_overlap_count,
         )
 
     def _load_timeframe(self, target: BacktestScanTarget, timeframe: str) -> tuple[object, ...]:
@@ -306,6 +326,45 @@ def _group_key(signal: StrategySignal) -> tuple[str, ...]:
         infer_strategy_family(signal),
         signal.setup_type,
     )
+
+
+def _position_key(signal: StrategySignal) -> tuple[str, str, str, str]:
+    return (
+        signal.symbol,
+        signal.strategy_name,
+        signal.strategy_version,
+        signal.setup_type,
+    )
+
+
+def _overlaps_active_position(
+    signal: StrategySignal,
+    input_item: BacktestSignalInput,
+    active_until_by_key: Mapping[tuple[str, str, str, str], int | None],
+) -> bool:
+    active_until = active_until_by_key.get(_position_key(signal))
+    entry_timestamp = _first_timestamp(input_item.execution_candles)
+    if active_until is None or entry_timestamp is None:
+        return False
+    return entry_timestamp <= active_until
+
+
+def _record_active_position_until(
+    signal: StrategySignal,
+    input_item: BacktestSignalInput,
+    execution_engine: BacktestExecutionEngine,
+    active_until_by_key: dict[tuple[str, str, str, str], int | None],
+) -> None:
+    result = execution_engine.run((input_item,))
+    if not result.fills:
+        return
+    active_until_by_key[_position_key(signal)] = result.fills[0].exit_timestamp_ms
+
+
+def _first_timestamp(candles: Sequence[object]) -> int | None:
+    if not candles:
+        return None
+    return int(getattr(candles[0], "timestamp_ms"))
 
 
 def _group_fill_stats(fills: Sequence[object], initial_equity: float) -> dict[str, float]:
