@@ -1,0 +1,198 @@
+{
+  "main": {
+    "id": "27835e60c526683b",
+    "type": "split",
+    "children": [
+      {
+        "id": "09bf1f79d55b2f35",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "508e3716af7fc424",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "项目总规划.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "项目总规划"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "b1828ead9e6294b8",
+    "type": "split",
+    "children": [
+      {
+        "id": "0b0bbe867ec530f6",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "ff7f7ae108016c3b",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "e01b5ccf400da6f7",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "d1937d2395b10a31",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "2abbfea61002b32e",
+    "type": "split",
+    "children": [
+      {
+        "id": "d36922b4cc63a11e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "88cc3a655cc7d743",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "反向链接"
+            }
+          },
+          {
+            "id": "a5c9b2aedc53313d",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "出链"
+            }
+          },
+          {
+            "id": "2f1e67805c8fad34",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "2ea80d3e1e23c325",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "添加笔记属性"
+            }
+          },
+          {
+            "id": "9821abd81d7cc675",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "大纲"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "daily-notes:打开/创建今天的日记": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false,
+      "bases:新建数据库": false
+    }
+  },
+  "active": "508e3716af7fc424",
+  "lastOpenFiles": [
+    "tmp4g_pdonv",
+    "tmpb4ykv10z",
+    "tmpkwt4qeph",
+    "tests/__pycache__/test_p5_dashboard_app.cpython-313.pyc",
+    "tests/__pycache__",
+    "__pycache__/app.cpython-313.pyc",
+    "__pycache__",
+    "trading_system/data/__pycache__/okx_cli.cpython-313.pyc",
+    "trading_system/data/__pycache__/history.cpython-313.pyc",
+    "trading_system/dashboard/__pycache__/presentation.cpython-313.pyc",
+    "trading_system/dashboard/__pycache__/components.cpython-313.pyc",
+    "AI Trading/05_回测风控与模拟盘/P5中文交易诊断驾驶舱.md"
+  ]
+}
