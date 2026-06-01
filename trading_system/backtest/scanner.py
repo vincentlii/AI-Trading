@@ -75,6 +75,15 @@ class BacktestScanGroupSummary:
     expectancy_per_trade: float
     average_holding_bars: float
     fee_to_gross_profit_ratio: float
+    direction: str = ""
+    inst_type: str = ""
+    inst_id: str = ""
+    contract_mode: str = "spot"
+    allow_short: bool = False
+    long_trades: int = 0
+    short_trades: int = 0
+    long_expectancy_R: float = 0.0
+    short_expectancy_R: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -279,7 +288,7 @@ def _build_group_summaries(profile_runs: Sequence[BacktestProfileScan]) -> tuple
     for run in profile_runs:
         approved_decisions = []
         for decision in run.result.decisions:
-            key = _group_key(decision.signal)
+            key = _group_key(decision.signal, run)
             signal_counts[key] += 1
             if decision.status == "approved":
                 approved_counts[key] += 1
@@ -288,7 +297,7 @@ def _build_group_summaries(profile_runs: Sequence[BacktestProfileScan]) -> tuple
                 rejected_counts[key] += 1
 
         for decision, fill in zip(approved_decisions, run.result.fills):
-            key = _group_key(decision.signal)
+            key = _group_key(decision.signal, run)
             fills_by_key[key].append(fill)
             if key not in initial_equity_by_key and run.result.equity_curve:
                 initial_equity_by_key[key] = float(run.result.equity_curve[0].equity)
@@ -306,6 +315,11 @@ def _build_group_summaries(profile_runs: Sequence[BacktestProfileScan]) -> tuple
                 strategy_version=key[4],
                 strategy_family=key[5],
                 setup_type=key[6],
+                direction=key[7],
+                inst_type=key[8],
+                inst_id=key[9],
+                contract_mode="usdt_swap" if key[8] == "SWAP" else "spot",
+                allow_short=key[8] == "SWAP",
                 signal_count=signal_counts[key],
                 approved_count=approved_counts[key],
                 rejected_count=rejected_counts[key],
@@ -316,7 +330,7 @@ def _build_group_summaries(profile_runs: Sequence[BacktestProfileScan]) -> tuple
     return tuple(summaries)
 
 
-def _group_key(signal: StrategySignal) -> tuple[str, ...]:
+def _group_key(signal: StrategySignal, run: BacktestProfileScan) -> tuple[str, ...]:
     return (
         signal.symbol,
         signal.venue,
@@ -325,6 +339,9 @@ def _group_key(signal: StrategySignal) -> tuple[str, ...]:
         signal.strategy_version,
         infer_strategy_family(signal),
         signal.setup_type,
+        signal.direction,
+        run.target.inst_type,
+        run.target.inst_id,
     )
 
 
@@ -381,6 +398,10 @@ def _group_fill_stats(fills: Sequence[object], initial_equity: float) -> dict[st
             "expectancy_per_trade": 0.0,
             "average_holding_bars": 0.0,
             "fee_to_gross_profit_ratio": 0.0,
+            "long_trades": 0,
+            "short_trades": 0,
+            "long_expectancy_R": 0.0,
+            "short_expectancy_R": 0.0,
         }
 
     net_values = [float(fill.net_pnl) for fill in fills]
@@ -392,6 +413,8 @@ def _group_fill_stats(fills: Sequence[object], initial_equity: float) -> dict[st
     total_cost = sum(float(fill.cost_estimate.total) for fill in fills)
     average_win = sum(wins) / len(wins) if wins else 0.0
     average_loss = abs(sum(losses) / len(losses)) if losses else 0.0
+    long_fills = [fill for fill in fills if fill.order.intent.direction == "LONG"]
+    short_fills = [fill for fill in fills if fill.order.intent.direction == "SHORT"]
     return {
         "net_profit": sum(net_values),
         "gross_profit": gross_profit,
@@ -404,6 +427,10 @@ def _group_fill_stats(fills: Sequence[object], initial_equity: float) -> dict[st
         "expectancy_per_trade": sum(net_values) / len(fills),
         "average_holding_bars": sum(int(fill.holding_bars) for fill in fills) / len(fills),
         "fee_to_gross_profit_ratio": 0.0 if gross_profit <= 0 else total_cost / gross_profit,
+        "long_trades": len(long_fills),
+        "short_trades": len(short_fills),
+        "long_expectancy_R": _average_r(long_fills),
+        "short_expectancy_R": _average_r(short_fills),
     }
 
 
@@ -427,6 +454,12 @@ def _profit_factor(gross_profit: float, gross_loss: float) -> float:
     if gross_loss == 0:
         return math.inf
     return gross_profit / abs(gross_loss)
+
+
+def _average_r(fills: Sequence[object]) -> float:
+    if not fills:
+        return 0.0
+    return sum(float(fill.r_multiple) for fill in fills) / len(fills)
 
 
 __all__ = (

@@ -26,6 +26,14 @@ def _event(**overrides) -> RejectionDetailEvent:
         "latest_volume": 70.0,
         "average_volume": 100.0,
         "price_state": "up_close",
+        "raw_volume": 70.0,
+        "log_volume": 4.25,
+        "rolling_rvol": 0.7,
+        "tod_dow_rvol": 0.8,
+        "volume_baseline_mode": "tod_dow_log_ewma",
+        "volume_bucket_key": "BTC|15m|1|8",
+        "volume_bucket_sample_count": 35,
+        "used_fallback_volume_baseline": False,
     }
     values.update(overrides)
     return RejectionDetailEvent(**values)
@@ -74,6 +82,8 @@ class SignalRejectionDetailTests(unittest.TestCase):
         self.assertEqual(row["volume_ratio_below_reject_threshold"], 1)
         self.assertEqual(row["volume_ratio_below_confirm_threshold"], 1)
         self.assertEqual(row["volume_ratio_above_anomaly_threshold"], 1)
+        self.assertEqual(row["volume_baseline_mode"], "tod_dow_log_ewma")
+        self.assertEqual(row["fallback_bucket_count"], 0)
 
     def test_volume_distribution_rows_report_percentiles(self):
         snapshot = summarize_rejection_events(
@@ -103,7 +113,11 @@ class SignalRejectionDetailTests(unittest.TestCase):
                     reward_to_risk=1.6,
                     estimated_cost_r=0.1,
                     net_reward_to_risk=1.5,
+                    min_stop_atr_multiple=0.8,
                     max_stop_atr_multiple=3.0,
+                    formal_approved=False,
+                    shadow_approved_5=True,
+                    shadow_approved_8=True,
                 ),
                 _event(
                     terminal_stage="risk_rejected",
@@ -117,7 +131,11 @@ class SignalRejectionDetailTests(unittest.TestCase):
                     reward_to_risk=1.2,
                     estimated_cost_r=0.2,
                     net_reward_to_risk=1.0,
+                    min_stop_atr_multiple=0.8,
                     max_stop_atr_multiple=3.0,
+                    formal_approved=False,
+                    shadow_approved_5=True,
+                    shadow_approved_8=True,
                 ),
             )
         )
@@ -127,6 +145,10 @@ class SignalRejectionDetailTests(unittest.TestCase):
         self.assertEqual(row["candidate_count"], 2)
         self.assertEqual(row["stop_atr_median"], 3.5)
         self.assertEqual(row["max_stop_atr_multiple"], 3.0)
+        self.assertEqual(row["min_stop_atr_multiple"], 0.8)
+        self.assertEqual(row["formal_approved"], 0)
+        self.assertEqual(row["shadow_approved_5"], 2)
+        self.assertEqual(row["shadow_approved_8"], 2)
         self.assertEqual(row["reward_to_risk_median"], 1.4)
         self.assertAlmostEqual(row["estimated_cost_r_median"], 0.15)
         self.assertEqual(row["net_reward_to_risk_median"], 1.25)

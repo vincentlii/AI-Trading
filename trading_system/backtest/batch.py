@@ -165,10 +165,34 @@ class _ConfiguredStrategy(Strategy):
         if not self.preset.strategy.enabled:
             return ()
         enabled_setups = set(self.preset.strategy.enabled_setups)
+        configured_context = self._with_preset_features(context)
         return tuple(
             signal
-            for signal in self.strategy.generate_signals(context)
+            for signal in self.strategy.generate_signals(configured_context)
             if signal.setup_type in enabled_setups
+        )
+
+    def _with_preset_features(self, context: StrategyContext) -> StrategyContext:
+        features = dict(context.features)
+        asset = context.symbol.split("/", 1)[0].upper()
+        try:
+            from trading_system.timeframe_profiles import get_profile
+
+            profile = get_profile(context.timeframe_group)
+            features.setdefault("entry_timeframe", profile.entry_timeframe)
+            features.setdefault("structure_timeframe", profile.structure_timeframe)
+        except KeyError:
+            pass
+        features.setdefault("asset", asset)
+        features.setdefault("timeframe_group", context.timeframe_group)
+        features.setdefault("strategy_parameters", self.preset.strategy.parameters)
+        features.setdefault("volume", self.preset.strategy.volume)
+        return StrategyContext(
+            symbol=context.symbol,
+            venue=context.venue,
+            timeframe_group=context.timeframe_group,
+            candles_by_timeframe=context.candles_by_timeframe,
+            features=features,
         )
 
 

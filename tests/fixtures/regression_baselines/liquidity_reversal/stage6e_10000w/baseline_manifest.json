@@ -1,0 +1,71 @@
+{
+  "baseline_dir": "tests\\fixtures\\regression_baselines\\liquidity_reversal\\stage6e_10000w",
+  "baseline_name": "liquidity_reversal_stage6e_10000w",
+  "created_at_utc": "2026-05-28T09:04:12.282998+00:00",
+  "key_metrics": "key_metrics.json",
+  "metric_tolerance": {
+    "counts": "exact",
+    "float_abs": 1e-09,
+    "float_rel": 1e-06
+  },
+  "pr_scope": "PR1 Regression Freeze only; no scanner/filter/sizing/execution logic changes.",
+  "selected_stage7_smoke_combos": [
+    "CHOCH true",
+    "displacement_after_reclaim"
+  ],
+  "snapshots": {
+    "stage6e_aggregated_comparison.csv": "stage6e_aggregated_comparison_snapshot.csv",
+    "stage6e_aggregator_final_report.md": "stage6e_aggregator_final_snapshot.md",
+    "stage7_smoke_grouped_rows.jsonl": "stage7_smoke_grouped_rows_snapshot.jsonl",
+    "stage7_smoke_plan.md": "stage7_smoke_plan_snapshot.md"
+  },
+  "source_artifacts": {
+    "aggregator_csv": {
+      "bytes": 5448,
+      "path": "storage\\backtest_cache\\stage6e_aggregator\\stage6e_aggregated_comparison.csv",
+      "sha256": "9cb267ff5a46ca6de28ec4d5c52b7762d578b06b8b2659a3b1b4be48288042fc"
+    },
+    "aggregator_report": {
+      "bytes": 8193,
+      "path": "storage\\backtest_cache\\stage6e_aggregator\\stage6e_aggregator_final_report.md",
+      "sha256": "409962861b141d0bb78412787c54e3d339f976d4c295c6c871cf26f51847e2b3"
+    },
+    "edge_combos": {
+      "bytes": 15102,
+      "path": "storage\\backtest_cache\\stage6e_edge\\10000w\\stage6d_quality_combos.csv",
+      "sha256": "3b2900736d6deb14146d6f1d12bfe919f2099005239d5fcaa5dda0f6f14b18d9"
+    },
+    "execution_results": {
+      "bytes": 195352,
+      "path": "storage\\backtest_cache\\minimal_lr_v0_filter_stage6e\\10000w\\minimal_lr_v0_execution_results.jsonl",
+      "sha256": "15bc5f3899789cf62c3273bc46cbd3eb92f91e08760e97eaaabecb7e6963c1f7"
+    },
+    "filter_results": {
+      "bytes": 24728873,
+      "path": "storage\\backtest_cache\\minimal_lr_v0_filter_stage6e\\10000w\\minimal_lr_v0_filter_results.jsonl",
+      "sha256": "034ea2d2711930946e4dfa6d35c5e15a756afde68eb236daed6bb78b48b389f5"
+    },
+    "fresh_candidates": {
+      "bytes": 15701620,
+      "path": "storage\\backtest_cache\\fresh_lr_scanner_stage6e\\10000w\\fresh_lr_candidates.jsonl",
+      "sha256": "83607505f943a645d53da4df258049af724b2ed24d10390eba32a3e67fc55545"
+    },
+    "sizing_summary": {
+      "bytes": 1967,
+      "path": "storage\\backtest_cache\\stage6e_sizing\\10000w\\stage6c_sizing_summary.csv",
+      "sha256": "5d059652eec71470c82adbbcbbf8f042e11f89db11814c53ee57e95dc515160b"
+    },
+    "smoke_grouped_rows": {
+      "bytes": 16422,
+      "path": "storage\\backtest_cache\\stage7_smoke_plan\\final\\stage7_smoke_grouped_rows.jsonl",
+      "sha256": "7ae0911e7e50f504189756fd011f0cfb88c872e37c3232a2d934ba708eb7afa8"
+    },
+    "smoke_plan": {
+      "bytes": 5372,
+      "path": "storage\\backtest_cache\\stage7_smoke_plan\\final\\stage7_smoke_plan.md",
+      "sha256": "2aeb72d3d0f24c31d6cca170811d440287e29305df09add861419bf60c8315ad"
+    }
+  },
+  "strategy": "liquidity_reversal",
+  "window": "10000w"
+}
