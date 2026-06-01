@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from trading_system.backtest import BacktestBatchRunner
 from trading_system.config import load_backtest_preset
 from trading_system.data.history import DuckDbCandleRepository
+from trading_system.reports.backtest_runs import record_backtest_run
 from trading_system.strategies.trend_price_volume_v1 import TrendPriceVolumeStrategy
 
 
@@ -21,6 +22,16 @@ def parse_args(argv=None):
         "--preset",
         default="configs/presets/btc_eth_p4_4.toml",
         help="Backtest preset path. Relative paths are resolved from project root.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="storage/backtest_runs",
+        help="Directory for persistent backtest run records. Relative paths are resolved from project root.",
+    )
+    parser.add_argument(
+        "--no-record",
+        action="store_true",
+        help="Print results without writing persistent run artifacts.",
     )
     return parser.parse_args(argv)
 
@@ -41,7 +52,8 @@ def main(argv=None) -> int:
         "rank status symbol profile strategy_family setup trades net_profit max_drawdown "
         "win_rate pl_ratio profit_factor avg_holding_bars expectancy fee_to_gross_profit"
     )
-    for row in report.to_rows():
+    rows = report.to_rows()
+    for row in rows:
         print(
             f"{row['rank']} {row['status']} {row['symbol']} {row['timeframe_group']} "
             f"{row['strategy_family']} {row['setup_type']} {row['trade_count']} "
@@ -57,6 +69,23 @@ def main(argv=None) -> int:
             f"skipped {run.target.canonical_symbol} {run.profile_key}: "
             f"{','.join(run.reason_codes)}"
         )
+
+    if args.no_record:
+        print("recording=disabled")
+    else:
+        record = record_backtest_run(
+            output_dir=args.output_dir,
+            script_name="scripts/run_btc_eth_p4_4_backtest.py",
+            command_args={
+                "db": args.db,
+                "preset": args.preset,
+            },
+            preset=preset,
+            rows=rows,
+            project_root=PROJECT_ROOT,
+        )
+        print(f"recorded_run_id={record.run_id}")
+        print(f"recorded_run_dir={record.run_dir}")
 
     return 0
 

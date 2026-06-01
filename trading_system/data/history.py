@@ -15,6 +15,8 @@ from trading_system.data.universe import required_okx_bars_for_profiles
 class CandleKey:
     inst_id: str
     bar: str
+    venue: str = "okx"
+    inst_type: str = "SPOT"
 
 
 @dataclass(frozen=True)
@@ -35,23 +37,32 @@ class CandleRepository:
     def __init__(self):
         self._candles_by_key: dict[CandleKey, dict[int, Candle]] = {}
 
-    def save_many(self, inst_id: str, bar: str, candles: Iterable[Candle]) -> None:
-        key = CandleKey(inst_id=inst_id, bar=bar)
+    def save_many(
+        self,
+        inst_id: str,
+        bar: str,
+        candles: Iterable[Candle],
+        *,
+        venue: str = "okx",
+        inst_type: str = "SPOT",
+        source: str = "okx_cli",
+    ) -> None:
+        key = CandleKey(inst_id=inst_id, bar=bar, venue=venue, inst_type=inst_type)
         candles_by_timestamp = self._candles_by_key.setdefault(key, {})
 
         for candle in candles:
             candles_by_timestamp[candle.timestamp_ms] = candle
 
-    def list_candles(self, inst_id: str, bar: str) -> tuple[Candle, ...]:
-        key = CandleKey(inst_id=inst_id, bar=bar)
+    def list_candles(self, inst_id: str, bar: str, *, venue: str = "okx", inst_type: str = "SPOT") -> tuple[Candle, ...]:
+        key = CandleKey(inst_id=inst_id, bar=bar, venue=venue, inst_type=inst_type)
         candles_by_timestamp = self._candles_by_key.get(key, {})
         return tuple(
             candle
             for _, candle in sorted(candles_by_timestamp.items(), key=lambda item: item[0])
         )
 
-    def latest_timestamp(self, inst_id: str, bar: str) -> int | None:
-        candles = self.list_candles(inst_id, bar)
+    def latest_timestamp(self, inst_id: str, bar: str, *, venue: str = "okx", inst_type: str = "SPOT") -> int | None:
+        candles = self.list_candles(inst_id, bar, venue=venue, inst_type=inst_type)
         if not candles:
             return None
         return candles[-1].timestamp_ms

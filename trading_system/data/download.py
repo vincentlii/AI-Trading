@@ -28,13 +28,13 @@ class DownloadSummary:
 
 class OkxHistoryDownloader:
     venue = "okx"
-    inst_type = "SPOT"
     source = "okx_cli"
 
-    def __init__(self, client, repository, cli_version: str = "unknown"):
+    def __init__(self, client, repository, cli_version: str = "unknown", *, inst_type: str = "SPOT"):
         self.client = client
         self.repository = repository
         self.cli_version = cli_version
+        self.inst_type = inst_type.upper()
 
     def download_symbol_bar(
         self,
