@@ -1,0 +1,27 @@
+strategy: liquidity_reversal
+status: backlog_after_pr12
+
+diagnostic_only:
+  profiles:
+    - B
+  structure_sources:
+    - rolling_range
+    - PDH_PDL
+    - EQH_EQL
+  exits:
+    - runner
+    - partial_tp
+    - structure_target
+  families:
+    - Tier_3
+    - Full_original_family
+
+future_research:
+  - name: b_profile_approval_bottleneck
+    reason: B fresh candidates are comparable to C, but formal approvals are much lower.
+  - name: pdh_pdl_scanner_support
+    reason: Current clean artifacts cannot prove active source value.
+  - name: eqh_eql_scanner_support
+    reason: Current clean artifacts cannot prove active source value.
+  - name: trend_continuation_future_research
+    reason: Separate strategy family; not part of PR12.
