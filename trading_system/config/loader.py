@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import tomllib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Mapping
 
@@ -44,6 +44,15 @@ class AssetConfig:
     primary_venue: str
     validation_venues: tuple[str, ...]
     targets: tuple[AssetTargetConfig, ...]
+    contract_mode: str = "spot"
+    allow_short: bool = False
+
+
+@dataclass(frozen=True)
+class CostTierConfig:
+    name: str
+    fee_rate: float
+    spread_slippage_rate: float
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,9 @@ class CostConfig:
     slippage: float
     funding: float
     description: str = ""
+    spread_slippage_rate: float = 0.0
+    funding_mode: str = "static_config_only"
+    cost_model_tiers: tuple[CostTierConfig, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -68,6 +80,15 @@ class ExecutionConfig:
     move_stop_to_true_breakeven: bool
     chandelier_period: int
     chandelier_atr_multiple: float
+    invalidation_mode: str = "atr_buffer"
+    invalidation_buffer_atr: float = 1.0
+    invalidation_buffer_atr_candidates: tuple[float, ...] = ()
+    shadow_max_stop_atr_multiple_candidates: tuple[float, ...] = ()
+    reversal_time_cut_bars: int = 0
+    reversal_time_cut_min_mfe_r: float = 0.0
+    reversal_time_cut_bars_candidates: tuple[int, ...] = ()
+    reversal_time_cut_min_mfe_r_candidates: tuple[float, ...] = ()
+    breakeven_after_mfe_r: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -84,6 +105,10 @@ class StrategyConfig:
     version: str
     enabled: bool
     enabled_setups: tuple[str, ...]
+    parameters: Mapping[str, object] = field(default_factory=dict)
+    parameter_grid: Mapping[str, object] = field(default_factory=dict)
+    profile_status: Mapping[str, str] = field(default_factory=dict)
+    volume: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -130,8 +155,12 @@ class BacktestPresetConfig:
             partial_take_profit_r=self.execution.partial_take_profit_r,
             partial_take_profit_pct=self.execution.partial_take_profit_pct,
             move_stop_to_true_breakeven=self.execution.move_stop_to_true_breakeven,
+            breakeven_after_mfe_r=self.execution.breakeven_after_mfe_r,
             chandelier_period=self.execution.chandelier_period,
             chandelier_atr_multiple=self.execution.chandelier_atr_multiple,
+            spread_slippage_rate=self.costs.spread_slippage_rate,
+            reversal_time_cut_bars=self.execution.reversal_time_cut_bars,
+            reversal_time_cut_min_mfe_r=self.execution.reversal_time_cut_min_mfe_r,
         )
 
 
@@ -205,6 +234,8 @@ def _parse_assets(data: Mapping[str, object]) -> AssetConfig:
         primary_venue=_required_str(data, "primary_venue").lower(),
         validation_venues=_str_tuple(data.get("validation_venues", ()), "validation_venues"),
         targets=targets,
+        contract_mode=str(data.get("contract_mode", "spot")),
+        allow_short=bool(data.get("allow_short", False)),
     )
 
 
@@ -243,6 +274,7 @@ def _parse_risk(data: Mapping[str, object]) -> RiskParameters:
 
 
 def _parse_costs(data: Mapping[str, object]) -> CostConfig:
+    tiers = _parse_cost_tiers(data.get("cost_model_tiers", {}))
     costs = CostConfig(
         name=_required_str(data, "name"),
         description=str(data.get("description", "")),
@@ -250,14 +282,43 @@ def _parse_costs(data: Mapping[str, object]) -> CostConfig:
         spread=_float(data, "spread"),
         slippage=_float(data, "slippage"),
         funding=_float(data, "funding"),
+        spread_slippage_rate=_optional_float(data, "spread_slippage_rate", 0.0),
+        funding_mode=str(data.get("funding_mode", "static_config_only")),
+        cost_model_tiers=tiers,
     )
     _non_negative("fee_rate", costs.fee_rate)
     _non_negative("spread", costs.spread)
     _non_negative("slippage", costs.slippage)
     _non_negative("funding", costs.funding)
+    _non_negative("spread_slippage_rate", costs.spread_slippage_rate)
+    for tier in costs.cost_model_tiers:
+        _non_negative(f"cost_model_tiers.{tier.name}.fee_rate", tier.fee_rate)
+        _non_negative(f"cost_model_tiers.{tier.name}.spread_slippage_rate", tier.spread_slippage_rate)
     if costs.fee_rate > 0.05:
         raise ConfigError("fee_rate must be <= 0.05")
     return costs
+
+
+def _parse_cost_tiers(value: object) -> tuple[CostTierConfig, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, Mapping):
+        raise ConfigError("cost_model_tiers must be a TOML table")
+    tiers: list[CostTierConfig] = []
+    for name in ("base", "stress", "harsh"):
+        raw = value.get(name)
+        if raw is None:
+            continue
+        if not isinstance(raw, Mapping):
+            raise ConfigError(f"cost_model_tiers.{name} must be a TOML table")
+        tiers.append(
+            CostTierConfig(
+                name=name,
+                fee_rate=_float(raw, "fee_rate"),
+                spread_slippage_rate=_float(raw, "spread_slippage_rate"),
+            )
+        )
+    return tuple(tiers)
 
 
 def _parse_execution(data: Mapping[str, object]) -> ExecutionConfig:
@@ -272,6 +333,27 @@ def _parse_execution(data: Mapping[str, object]) -> ExecutionConfig:
         move_stop_to_true_breakeven=_bool(data, "move_stop_to_true_breakeven"),
         chandelier_period=_int(data, "chandelier_period"),
         chandelier_atr_multiple=_float(data, "chandelier_atr_multiple"),
+        invalidation_mode=str(data.get("invalidation_mode", "atr_buffer")),
+        invalidation_buffer_atr=_optional_float(data, "invalidation_buffer_atr", 1.0),
+        invalidation_buffer_atr_candidates=_float_tuple(
+            data.get("invalidation_buffer_atr_candidates", ()),
+            "invalidation_buffer_atr_candidates",
+        ),
+        shadow_max_stop_atr_multiple_candidates=_float_tuple(
+            data.get("shadow_max_stop_atr_multiple_candidates", ()),
+            "shadow_max_stop_atr_multiple_candidates",
+        ),
+        reversal_time_cut_bars=_optional_int(data, "reversal_time_cut_bars", 0),
+        reversal_time_cut_min_mfe_r=_optional_float(data, "reversal_time_cut_min_mfe_r", 0.0),
+        reversal_time_cut_bars_candidates=_int_tuple(
+            data.get("reversal_time_cut_bars_candidates", ()),
+            "reversal_time_cut_bars_candidates",
+        ),
+        reversal_time_cut_min_mfe_r_candidates=_float_tuple(
+            data.get("reversal_time_cut_min_mfe_r_candidates", ()),
+            "reversal_time_cut_min_mfe_r_candidates",
+        ),
+        breakeven_after_mfe_r=_optional_float(data, "breakeven_after_mfe_r", 0.0),
     )
     if execution.initial_equity <= 0:
         raise ConfigError("initial_equity must be greater than 0")
@@ -304,6 +386,15 @@ def _parse_strategy(data: Mapping[str, object]) -> StrategyConfig:
         version=_required_str(data, "version"),
         enabled=_bool(data, "enabled"),
         enabled_setups=tuple(_str_tuple(data.get("enabled_setups", ()), "enabled_setups")),
+        parameters=dict(data.get("parameters", {})) if isinstance(data.get("parameters", {}), Mapping) else {},
+        parameter_grid=dict(data.get("parameter_grid", {})) if isinstance(data.get("parameter_grid", {}), Mapping) else {},
+        profile_status={
+            str(key).upper(): str(value)
+            for key, value in dict(data.get("profile_status", {})).items()
+        }
+        if isinstance(data.get("profile_status", {}), Mapping)
+        else {},
+        volume=dict(data.get("volume", {})) if isinstance(data.get("volume", {}), Mapping) else {},
     )
     if strategy.name == "trend_price_volume" and strategy.version == "v1":
         invalid = sorted(set(strategy.enabled_setups) - TREND_PRICE_VOLUME_SETUPS)
@@ -384,6 +475,34 @@ def _int(source: Mapping[str, object], key: str) -> int:
     if not isinstance(value, int):
         raise ConfigError(f"{key} must be an integer")
     return value
+
+
+def _optional_float(source: Mapping[str, object], key: str, default: float) -> float:
+    if key not in source:
+        return default
+    return _float(source, key)
+
+
+def _optional_int(source: Mapping[str, object], key: str, default: int) -> int:
+    if key not in source:
+        return default
+    return _int(source, key)
+
+
+def _float_tuple(value: object, key: str) -> tuple[float, ...]:
+    if value in (None, ()):
+        return ()
+    if not isinstance(value, list | tuple) or not all(isinstance(item, int | float) and not isinstance(item, bool) for item in value):
+        raise ConfigError(f"{key} must be a list of numbers")
+    return tuple(float(item) for item in value)
+
+
+def _int_tuple(value: object, key: str) -> tuple[int, ...]:
+    if value in (None, ()):
+        return ()
+    if not isinstance(value, list | tuple) or not all(isinstance(item, int) and not isinstance(item, bool) for item in value):
+        raise ConfigError(f"{key} must be a list of integers")
+    return tuple(value)
 
 
 def _bool(source: Mapping[str, object], key: str) -> bool:

@@ -10,6 +10,7 @@ from trading_system.config import ConfigError, load_backtest_preset
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PRESET_PATH = PROJECT_ROOT / "configs" / "presets" / "btc_eth_p4_4.toml"
+SWAP_PRESET_PATH = PROJECT_ROOT / "configs" / "presets" / "btc_eth_swap_proposal.toml"
 
 
 class ConfigLoaderTests(unittest.TestCase):
@@ -30,6 +31,27 @@ class ConfigLoaderTests(unittest.TestCase):
         self.assertEqual([target.inst_id for target in scan_config.targets], ["BTC-USDT", "ETH-USDT"])
         self.assertEqual({target.venue for target in scan_config.targets}, {"okx"})
         self.assertEqual({target.inst_type for target in scan_config.targets}, {"SPOT"})
+
+    def test_loads_swap_proposal_preset_with_bc_primary_profiles_and_contract_metadata(self):
+        preset = load_backtest_preset(SWAP_PRESET_PATH)
+        scan_config = preset.to_scan_config()
+
+        self.assertEqual(preset.assets.contract_mode, "usdt_swap")
+        self.assertTrue(preset.assets.allow_short)
+        self.assertEqual(scan_config.profile_keys, ("B", "C"))
+        self.assertEqual([target.inst_id for target in scan_config.targets], ["BTC-USDT-SWAP", "ETH-USDT-SWAP"])
+        self.assertEqual({target.inst_type for target in scan_config.targets}, {"SWAP"})
+        self.assertEqual(preset.strategy.profile_status["A"], "diagnostic_only")
+        self.assertEqual(preset.strategy.profile_status["B"], "proposal_enabled")
+        self.assertEqual(preset.strategy.volume["baseline_mode"], "tod_dow_log_ewma")
+        self.assertEqual(preset.strategy.parameters["liquidity_reversal"]["assets"]["BTC"]["sweep_rvol_min"], 1.8)
+        self.assertEqual(preset.strategy.parameters["liquidity_reversal"]["assets"]["ETH"]["require_choch_for_eth_reversal"], True)
+        self.assertEqual(preset.execution.invalidation_mode, "structure_extreme_buffer")
+        self.assertEqual(preset.execution.invalidation_buffer_atr, 0.15)
+        self.assertEqual(preset.execution.shadow_max_stop_atr_multiple_candidates, (5.0, 8.0))
+        self.assertEqual(preset.execution.breakeven_after_mfe_r, 1.0)
+        self.assertEqual([tier.name for tier in preset.costs.cost_model_tiers], ["base", "stress", "harsh"])
+        self.assertTrue(all(tier.fee_rate == 0.001 for tier in preset.costs.cost_model_tiers))
 
     def test_builds_risk_and_execution_configs(self):
         preset = load_backtest_preset(PRESET_PATH)

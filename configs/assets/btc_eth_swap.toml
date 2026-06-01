@@ -1,0 +1,17 @@
+universe = "btc_eth"
+primary_venue = "okx"
+validation_venues = ["binance"]
+contract_mode = "usdt_swap"
+allow_short = true
+
+[[targets]]
+canonical_symbol = "BTC/USDT"
+inst_id = "BTC-USDT-SWAP"
+venue = "okx"
+inst_type = "SWAP"
+
+[[targets]]
+canonical_symbol = "ETH/USDT"
+inst_id = "ETH-USDT-SWAP"
+venue = "okx"
+inst_type = "SWAP"
