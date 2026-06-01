@@ -117,6 +117,26 @@ class BacktestExecutionTests(unittest.TestCase):
         self.assertEqual(result.equity_curve[-1].equity, 101000.0)
         self.assertEqual(result.summary.net_profit, 1000.0)
 
+    def test_fill_has_execution_identity_from_candidate_context(self):
+        signal = _signal(
+            explanation_payload={
+                "candidate_id": "candidate-1",
+                "event_id": "event-1",
+            }
+        )
+
+        result = self.engine().run(
+            (BacktestSignalInput(signal, (_candle(1, 100.0, 111.0, 99.0, 110.0),)),)
+        )
+
+        fill = result.fills[0]
+
+        self.assertEqual(fill.candidate_id, "candidate-1")
+        self.assertEqual(fill.event_id, "event-1")
+        self.assertTrue(fill.trade_id.startswith("trade_"))
+        self.assertTrue(fill.execution_id.startswith("exec_"))
+        self.assertIn("candidate-1", fill.trade_id)
+
     def test_approved_long_stop_generates_negative_fill(self):
         result = self.engine().run(
             (BacktestSignalInput(_signal(), (_candle(1, 100.0, 102.0, 94.0, 95.0),)),)
@@ -147,6 +167,13 @@ class BacktestExecutionTests(unittest.TestCase):
 
         self.assertEqual(result.fills[0].exit_reason, "stop_loss")
         self.assertEqual(result.fills[0].exit_price, 95.0)
+        self.assertTrue(result.fills[0].same_bar_ambiguous)
+        self.assertEqual(result.fills[0].same_bar_resolution, "stop_first")
+        self.assertFalse(result.fills[0].intrabar_scan_available)
+        self.assertFalse(result.fills[0].intrabar_scan_used)
+        self.assertTrue(result.fills[0].stop_and_target_touched_same_bar)
+        self.assertTrue(result.fills[0].entry_and_exit_same_bar)
+        self.assertTrue(result.fills[0].forced_pessimistic_exit)
 
     def test_time_exit_uses_last_close_after_max_holding_bars(self):
         result = self.engine(max_holding_bars=2).run(
@@ -168,6 +195,41 @@ class BacktestExecutionTests(unittest.TestCase):
         self.assertEqual(fill.exit_price, 103.0)
         self.assertEqual(fill.holding_bars, 2)
 
+    def test_liquidity_reversal_time_cut_exits_when_early_mfe_is_too_low(self):
+        result = self.engine(reversal_time_cut_bars=2, reversal_time_cut_min_mfe_r=0.5).run(
+            (
+                BacktestSignalInput(
+                    _signal(setup_type="liquidity_reversal"),
+                    (
+                        _candle(1, 100.0, 101.0, 99.0, 100.2),
+                        _candle(2, 100.2, 101.5, 98.5, 100.5),
+                        _candle(3, 100.5, 111.0, 99.0, 110.0),
+                    ),
+                ),
+            )
+        )
+
+        fill = result.fills[0]
+
+        self.assertEqual(fill.exit_reason, "time_cut_exit")
+        self.assertEqual(fill.exit_price, 100.5)
+        self.assertEqual(fill.holding_bars, 2)
+
+    def test_liquidity_reversal_time_cut_does_not_override_stop_first(self):
+        result = self.engine(reversal_time_cut_bars=1, reversal_time_cut_min_mfe_r=2.0).run(
+            (
+                BacktestSignalInput(
+                    _signal(setup_type="liquidity_reversal"),
+                    (_candle(1, 100.0, 101.0, 94.0, 100.5),),
+                ),
+            )
+        )
+
+        fill = result.fills[0]
+
+        self.assertEqual(fill.exit_reason, "stop_loss")
+        self.assertTrue(fill.forced_pessimistic_exit is False)
+
     def test_costs_reduce_net_pnl_and_are_included_in_summary(self):
         result = self.engine(fee_rate=0.001, spread=1.0, slippage=0.5, funding=2.0).run(
             (BacktestSignalInput(_signal(), (_candle(1, 100.0, 111.0, 99.0, 110.0),)),)
@@ -180,6 +242,50 @@ class BacktestExecutionTests(unittest.TestCase):
         self.assertEqual(fill.net_pnl, fill.gross_pnl - fill.cost_estimate.total)
         self.assertEqual(result.summary.net_profit, fill.net_pnl)
         self.assertGreater(result.summary.cost_to_gross_profit_ratio, 0.0)
+
+    def test_excursion_diagnostics_record_mae_mfe_and_r_path_for_long_and_short(self):
+        long_result = self.engine(max_holding_bars=3).run(
+            (
+                BacktestSignalInput(
+                    _signal(),
+                    (
+                        _candle(1, 100.0, 104.0, 98.0, 102.0),
+                        _candle(2, 102.0, 108.0, 101.0, 107.0),
+                        _candle(3, 107.0, 109.0, 103.0, 106.0),
+                    ),
+                ),
+            )
+        )
+        short_result = self.engine(max_holding_bars=3).run(
+            (
+                BacktestSignalInput(
+                    _signal(direction="short", invalidation_level=105.0, target_hint={"target_price": 90.0}),
+                    (
+                        _candle(1, 100.0, 102.0, 96.0, 98.0),
+                        _candle(2, 98.0, 99.0, 93.0, 94.0),
+                        _candle(3, 94.0, 98.0, 92.0, 96.0),
+                    ),
+                ),
+            )
+        )
+
+        long_fill = long_result.fills[0]
+        short_fill = short_result.fills[0]
+
+        self.assertEqual(long_fill.exit_reason, "time_exit")
+        self.assertEqual(long_fill.mae, 2.0)
+        self.assertEqual(long_fill.mfe, 9.0)
+        self.assertEqual(long_fill.mae_r, 0.4)
+        self.assertEqual(long_fill.mfe_r, 1.8)
+        self.assertEqual(long_fill.bars_to_mae, 1)
+        self.assertEqual(long_fill.bars_to_mfe, 3)
+        self.assertEqual(long_fill.r_path_after_entry, (0.4, 1.4, 1.2))
+        self.assertTrue(long_fill.reached_1r)
+        self.assertTrue(long_fill.reached_1_5r)
+        self.assertFalse(long_fill.reached_2r)
+        self.assertEqual(short_fill.mae, 2.0)
+        self.assertEqual(short_fill.mfe, 8.0)
+        self.assertEqual(short_fill.r_path_after_entry, (0.4, 1.2, 0.8))
 
     def test_equity_curve_and_summary_update_across_multiple_fills(self):
         result = self.engine().run(

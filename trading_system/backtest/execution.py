@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
@@ -23,6 +24,7 @@ class BacktestExecutionConfig:
     fee_rate: float = 0.0
     spread: float = 0.0
     slippage: float = 0.0
+    spread_slippage_rate: float = 0.0
     funding: float = 0.0
     conservative_same_bar: bool = True
     point_value: float = 1.0
@@ -30,14 +32,26 @@ class BacktestExecutionConfig:
     partial_take_profit_r: float = 1.0
     partial_take_profit_pct: float = 0.5
     move_stop_to_true_breakeven: bool = True
+    breakeven_after_mfe_r: float = 0.0
     chandelier_period: int = 22
     chandelier_atr_multiple: float = 4.0
+    reversal_time_cut_bars: int = 0
+    reversal_time_cut_min_mfe_r: float = 0.0
 
 
 @dataclass(frozen=True)
 class BacktestSignalInput:
     signal: StrategySignal
     execution_candles: tuple[object, ...]
+    candidate_id: str = ""
+    event_id: str = ""
+    feature_cutoff_time: int | None = None
+    structure_confirmed_time: int | None = None
+    sweep_time: int | None = None
+    reclaim_time: int | None = None
+    signal_time: int | None = None
+    bar_confirmed: bool = True
+    no_lookahead_safe: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -65,6 +79,10 @@ class BacktestExitEvent:
 class BacktestFillResult:
     order: SimulatedOrder
     decision: RiskDecision
+    trade_id: str
+    execution_id: str
+    candidate_id: str
+    event_id: str
     entry_timestamp_ms: int | None
     exit_timestamp_ms: int | None
     entry_price: float
@@ -77,6 +95,30 @@ class BacktestFillResult:
     cost_estimate: CostEstimate
     trade_log: TradeLogEntry
     exit_events: tuple[BacktestExitEvent, ...] = field(default_factory=tuple)
+    mae: float = 0.0
+    mfe: float = 0.0
+    mae_r: float = 0.0
+    mfe_r: float = 0.0
+    bars_to_mae: int = 0
+    bars_to_mfe: int = 0
+    r_path_after_entry: tuple[float, ...] = field(default_factory=tuple)
+    max_favorable_drawdown_ratio: float = 0.0
+    stop_efficiency_ratio: float = 0.0
+    trade_excursion_asymmetry: float = 0.0
+    exit_bar_index: int = 0
+    reached_1r: bool = False
+    reached_1_5r: bool = False
+    reached_2r: bool = False
+    moved_to_breakeven: bool = False
+    breakeven_hit: bool = False
+    partial_take_profit_hit: bool = False
+    same_bar_ambiguous: bool = False
+    same_bar_resolution: str = ""
+    intrabar_scan_available: bool = False
+    intrabar_scan_used: bool = False
+    stop_and_target_touched_same_bar: bool = False
+    entry_and_exit_same_bar: bool = False
+    forced_pessimistic_exit: bool = False
 
 
 @dataclass(frozen=True)
@@ -183,7 +225,7 @@ class BacktestExecutionEngine:
         fills: list[BacktestFillResult] = []
         equity_curve: list[EquityPoint] = [EquityPoint(timestamp_ms=None, equity=equity, drawdown_pct=0.0)]
 
-        for item in inputs:
+        for signal_index, item in enumerate(inputs):
             intent, atr, adapter_reasons = self.adapter.to_order_intent(
                 item.signal,
                 item.execution_candles,
@@ -214,11 +256,13 @@ class BacktestExecutionEngine:
             if risk_decision.approved_order is None:
                 continue
 
+            lineage = _signal_lineage(item, signal_index=signal_index)
             fill = _simulate_fill(
                 risk_decision=risk_decision,
                 execution_candles=item.execution_candles,
                 config=self.config,
                 atr=atr,
+                lineage=lineage,
             )
             fills.append(fill)
             equity += fill.net_pnl
@@ -252,12 +296,14 @@ def simulate_approved_fill(
     execution_candles: Sequence[object],
     config: BacktestExecutionConfig,
     atr: float,
+    lineage: Mapping[str, object] | None = None,
 ) -> BacktestFillResult:
     return _simulate_fill(
         risk_decision=risk_decision,
         execution_candles=execution_candles,
         config=config,
         atr=atr,
+        lineage=lineage or {},
     )
 
 
@@ -267,6 +313,7 @@ def _simulate_fill(
     execution_candles: Sequence[object],
     config: BacktestExecutionConfig,
     atr: float,
+    lineage: Mapping[str, object],
 ) -> BacktestFillResult:
     order = risk_decision.approved_order
     if order is None:
@@ -283,9 +330,10 @@ def _simulate_fill(
             candles=candles,
             config=config,
             atr=atr,
+            lineage=lineage,
         )
 
-    return _simulate_simple_fill(risk_decision=risk_decision, candles=candles, config=config)
+    return _simulate_simple_fill(risk_decision=risk_decision, candles=candles, config=config, lineage=lineage)
 
 
 def _simulate_simple_fill(
@@ -293,6 +341,7 @@ def _simulate_simple_fill(
     risk_decision: RiskDecision,
     candles: Sequence[object],
     config: BacktestExecutionConfig,
+    lineage: Mapping[str, object],
 ) -> BacktestFillResult:
     order = risk_decision.approved_order
     if order is None:
@@ -308,6 +357,7 @@ def _simulate_simple_fill(
         high = float(getattr(candle, "high"))
         low = float(getattr(candle, "low"))
         stop_hit, target_hit = _exit_hits(intent, high=high, low=low)
+        same_bar_ambiguous = stop_hit and target_hit
         if stop_hit and target_hit and config.conservative_same_bar:
             exit_price = intent.stop_loss
             exit_reason = "stop_loss"
@@ -318,10 +368,24 @@ def _simulate_simple_fill(
             exit_price = intent.target_price
             exit_reason = "target"
         else:
+            if _should_time_cut_liquidity_reversal(
+                intent=intent,
+                candles=candles[:index],
+                bar_index=index,
+                config=config,
+            ):
+                exit_price = float(getattr(candle, "close"))
+                exit_reason = "time_cut_exit"
+                exit_candle = candle
+                holding_bars = index
+                same_bar_ambiguous = False
+                break
             continue
         exit_candle = candle
         holding_bars = index
         break
+    else:
+        same_bar_ambiguous = False
 
     exit_event = _build_exit_event(
         intent=intent,
@@ -344,11 +408,35 @@ def _simulate_simple_fill(
         r_multiple=r_multiple,
         exit_events=(exit_event,),
     )
+    diagnostics = _fill_diagnostics(
+        intent=intent,
+        candles=candles,
+        holding_bars=holding_bars,
+        exit_reason=exit_reason,
+        exit_events=(exit_event,),
+        same_bar_ambiguous=same_bar_ambiguous,
+        stop_and_target_touched_same_bar=same_bar_ambiguous,
+        entry_and_exit_same_bar=holding_bars == 1,
+        forced_pessimistic_exit=same_bar_ambiguous and config.conservative_same_bar,
+    )
+    entry_timestamp = _optional_timestamp(candles[0])
+    exit_timestamp = _optional_timestamp(exit_candle)
+    identity = _execution_identity(
+        lineage=lineage,
+        intent=intent,
+        entry_timestamp_ms=entry_timestamp,
+        exit_timestamp_ms=exit_timestamp,
+        exit_reason=exit_reason,
+    )
     return BacktestFillResult(
         order=order,
         decision=risk_decision,
-        entry_timestamp_ms=_optional_timestamp(candles[0]),
-        exit_timestamp_ms=_optional_timestamp(exit_candle),
+        trade_id=identity["trade_id"],
+        execution_id=identity["execution_id"],
+        candidate_id=identity["candidate_id"],
+        event_id=identity["event_id"],
+        entry_timestamp_ms=entry_timestamp,
+        exit_timestamp_ms=exit_timestamp,
         entry_price=intent.entry_price,
         exit_price=exit_price,
         exit_reason=exit_reason,
@@ -359,6 +447,7 @@ def _simulate_simple_fill(
         cost_estimate=cost_estimate,
         trade_log=trade_log,
         exit_events=(exit_event,),
+        **diagnostics,
     )
 
 
@@ -368,6 +457,7 @@ def _simulate_advanced_fill(
     candles: Sequence[object],
     config: BacktestExecutionConfig,
     atr: float,
+    lineage: Mapping[str, object],
 ) -> BacktestFillResult:
     order = risk_decision.approved_order
     if order is None:
@@ -442,6 +532,10 @@ def _simulate_advanced_fill(
             if remaining_quantity <= 0.0:
                 break
             if config.move_stop_to_true_breakeven:
+                observed_mfe_r = config.partial_take_profit_r
+                if observed_mfe_r < config.breakeven_after_mfe_r:
+                    seen_candles.append(candle)
+                    continue
                 current_stop = _true_breakeven_stop(
                     intent=intent,
                     remaining_quantity=remaining_quantity,
@@ -479,6 +573,26 @@ def _simulate_advanced_fill(
             remaining_quantity = 0.0
             break
 
+        if _should_time_cut_liquidity_reversal(
+            intent=intent,
+            candles=tuple(seen_candles) + (candle,),
+            bar_index=index,
+            config=config,
+        ):
+            events.append(
+                _build_exit_event(
+                    intent=intent,
+                    candle=candle,
+                    bar_index=index,
+                    event_type="time_cut_exit",
+                    price=float(getattr(candle, "close")),
+                    quantity=remaining_quantity,
+                    config=config,
+                )
+            )
+            remaining_quantity = 0.0
+            break
+
         seen_candles.append(candle)
         if partial_done and remaining_quantity > 0.0:
             candidate_stop = _chandelier_stop(intent.direction, seen_candles, atr=atr, config=config)
@@ -505,6 +619,7 @@ def _simulate_advanced_fill(
         risk_decision=risk_decision,
         candles=candles,
         events=tuple(events),
+        lineage=lineage,
     )
 
 
@@ -513,6 +628,7 @@ def _build_fill_result(
     risk_decision: RiskDecision,
     candles: Sequence[object],
     events: tuple[BacktestExitEvent, ...],
+    lineage: Mapping[str, object],
 ) -> BacktestFillResult:
     order = risk_decision.approved_order
     if order is None:
@@ -533,10 +649,29 @@ def _build_fill_result(
         r_multiple=r_multiple,
         exit_events=events,
     )
+    diagnostics = _fill_diagnostics(
+        intent=order.intent,
+        candles=candles,
+        holding_bars=final_event.bar_index,
+        exit_reason=final_event.event_type,
+        exit_events=events,
+    )
+    entry_timestamp = _optional_timestamp(candles[0])
+    identity = _execution_identity(
+        lineage=lineage,
+        intent=order.intent,
+        entry_timestamp_ms=entry_timestamp,
+        exit_timestamp_ms=final_event.timestamp_ms,
+        exit_reason=final_event.event_type,
+    )
     return BacktestFillResult(
         order=order,
         decision=risk_decision,
-        entry_timestamp_ms=_optional_timestamp(candles[0]),
+        trade_id=identity["trade_id"],
+        execution_id=identity["execution_id"],
+        candidate_id=identity["candidate_id"],
+        event_id=identity["event_id"],
+        entry_timestamp_ms=entry_timestamp,
         exit_timestamp_ms=final_event.timestamp_ms,
         entry_price=order.intent.entry_price,
         exit_price=final_event.price,
@@ -548,6 +683,7 @@ def _build_fill_result(
         cost_estimate=cost_estimate,
         trade_log=trade_log,
         exit_events=events,
+        **diagnostics,
     )
 
 
@@ -624,6 +760,118 @@ def _r_price(intent: OrderIntent, r_multiple: float) -> float:
     raise ValueError(f"Unsupported direction: {intent.direction}")
 
 
+def _signal_lineage(item: BacktestSignalInput, *, signal_index: int) -> dict[str, object]:
+    signal = item.signal
+    candidate_id = _lineage_value(item.candidate_id, signal.explanation_payload, signal.price_action_evidence, "candidate_id")
+    event_id = _lineage_value(item.event_id, signal.explanation_payload, signal.price_action_evidence, "event_id")
+    fallback_seed = "|".join(
+        (
+            signal.strategy_name,
+            signal.strategy_version,
+            signal.symbol,
+            signal.venue,
+            signal.setup_type,
+            signal.direction,
+            str(signal_index),
+        )
+    )
+    if not candidate_id:
+        candidate_id = "signal_" + _stable_token(fallback_seed)
+    if not event_id:
+        event_id = str(candidate_id)
+    return {
+        "candidate_id": str(candidate_id),
+        "event_id": str(event_id),
+        "feature_cutoff_time": item.feature_cutoff_time,
+        "structure_confirmed_time": item.structure_confirmed_time,
+        "sweep_time": item.sweep_time,
+        "reclaim_time": item.reclaim_time,
+        "signal_time": item.signal_time,
+        "bar_confirmed": item.bar_confirmed,
+        "no_lookahead_safe": item.no_lookahead_safe,
+    }
+
+
+def _execution_identity(
+    *,
+    lineage: Mapping[str, object],
+    intent: OrderIntent,
+    entry_timestamp_ms: int | None,
+    exit_timestamp_ms: int | None,
+    exit_reason: str,
+) -> dict[str, str]:
+    candidate_id = str(lineage.get("candidate_id") or "")
+    event_id = str(lineage.get("event_id") or candidate_id)
+    trade_seed = "|".join(
+        (
+            intent.strategy_name,
+            intent.strategy_version,
+            intent.symbol,
+            intent.venue,
+            intent.setup_type,
+            intent.direction,
+            event_id,
+            candidate_id,
+            str(entry_timestamp_ms),
+        )
+    )
+    trade_id = f"trade_{candidate_id}_{_stable_token(trade_seed)}"
+    execution_seed = "|".join((trade_id, str(exit_timestamp_ms), exit_reason))
+    execution_id = f"exec_{_stable_token(execution_seed)}"
+    return {
+        "candidate_id": candidate_id,
+        "event_id": event_id,
+        "trade_id": trade_id,
+        "execution_id": execution_id,
+    }
+
+
+def _lineage_value(
+    direct_value: object,
+    explanation_payload: Mapping[str, object],
+    price_action_evidence: Mapping[str, object],
+    key: str,
+) -> object:
+    if direct_value not in (None, ""):
+        return direct_value
+    value = explanation_payload.get(key)
+    if value not in (None, ""):
+        return value
+    return price_action_evidence.get(key)
+
+
+def _stable_token(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def _should_time_cut_liquidity_reversal(
+    *,
+    intent: OrderIntent,
+    candles: Sequence[object],
+    bar_index: int,
+    config: BacktestExecutionConfig,
+) -> bool:
+    if intent.setup_type != "liquidity_reversal":
+        return False
+    if config.reversal_time_cut_bars <= 0 or bar_index < config.reversal_time_cut_bars:
+        return False
+    if intent.stop_distance <= 0:
+        return False
+    return _mfe_r(intent, candles) < config.reversal_time_cut_min_mfe_r
+
+
+def _mfe_r(intent: OrderIntent, candles: Sequence[object]) -> float:
+    favorable = 0.0
+    for candle in candles:
+        high = float(getattr(candle, "high"))
+        low = float(getattr(candle, "low"))
+        if intent.direction == "LONG":
+            favorable = max(favorable, high - intent.entry_price)
+        elif intent.direction == "SHORT":
+            favorable = max(favorable, intent.entry_price - low)
+    return max(0.0, favorable) / intent.stop_distance
+
+
 def _true_breakeven_stop(
     *,
     intent: OrderIntent,
@@ -688,9 +936,79 @@ def _estimate_cost(
     return CostEstimate(
         fees=(entry_notional + exit_notional) * config.fee_rate,
         spread=abs(config.spread * point_quantity),
-        expected_slippage=abs(config.slippage * point_quantity * 2.0),
+        expected_slippage=abs(config.slippage * point_quantity * 2.0)
+        + (entry_notional + exit_notional) * config.spread_slippage_rate,
         funding=abs(config.funding * point_quantity),
     )
+
+
+def _fill_diagnostics(
+    *,
+    intent: OrderIntent,
+    candles: Sequence[object],
+    holding_bars: int,
+    exit_reason: str,
+    exit_events: tuple[BacktestExitEvent, ...],
+    same_bar_ambiguous: bool = False,
+    stop_and_target_touched_same_bar: bool = False,
+    entry_and_exit_same_bar: bool = False,
+    forced_pessimistic_exit: bool = False,
+) -> dict[str, object]:
+    window = tuple(candles[:holding_bars])
+    if not window or intent.stop_distance <= 0:
+        return {}
+
+    adverse: list[float] = []
+    favorable: list[float] = []
+    r_path: list[float] = []
+    for candle in window:
+        high = float(getattr(candle, "high"))
+        low = float(getattr(candle, "low"))
+        close = float(getattr(candle, "close"))
+        if intent.direction == "LONG":
+            adverse.append(max(0.0, intent.entry_price - low))
+            favorable.append(max(0.0, high - intent.entry_price))
+            r_path.append((close - intent.entry_price) / intent.stop_distance)
+        else:
+            adverse.append(max(0.0, high - intent.entry_price))
+            favorable.append(max(0.0, intent.entry_price - low))
+            r_path.append((intent.entry_price - close) / intent.stop_distance)
+
+    mae = max(adverse, default=0.0)
+    mfe = max(favorable, default=0.0)
+    bars_to_mae = adverse.index(mae) + 1 if adverse else 0
+    bars_to_mfe = favorable.index(mfe) + 1 if favorable else 0
+    mae_r = mae / intent.stop_distance
+    mfe_r = mfe / intent.stop_distance
+    partial_hit = any(event.event_type == "partial_take_profit" for event in exit_events)
+    breakeven_hit = any(event.event_type == "breakeven_stop" for event in exit_events)
+    moved_to_breakeven = partial_hit or breakeven_hit
+    return {
+        "mae": mae,
+        "mfe": mfe,
+        "mae_r": mae_r,
+        "mfe_r": mfe_r,
+        "bars_to_mae": bars_to_mae,
+        "bars_to_mfe": bars_to_mfe,
+        "r_path_after_entry": tuple(r_path),
+        "max_favorable_drawdown_ratio": 0.0 if mfe <= 0 else max(0.0, mfe - max(r_path, default=0.0) * intent.stop_distance) / mfe,
+        "stop_efficiency_ratio": 0.0 if mae <= 0 else min(mae / intent.stop_distance, 1.0),
+        "trade_excursion_asymmetry": 0.0 if mae <= 0 else mfe / mae,
+        "exit_bar_index": holding_bars,
+        "reached_1r": mfe_r >= 1.0,
+        "reached_1_5r": mfe_r >= 1.5,
+        "reached_2r": mfe_r >= 2.0,
+        "moved_to_breakeven": moved_to_breakeven,
+        "breakeven_hit": breakeven_hit,
+        "partial_take_profit_hit": partial_hit,
+        "same_bar_ambiguous": same_bar_ambiguous,
+        "same_bar_resolution": "stop_first" if same_bar_ambiguous else "",
+        "intrabar_scan_available": False,
+        "intrabar_scan_used": False,
+        "stop_and_target_touched_same_bar": stop_and_target_touched_same_bar,
+        "entry_and_exit_same_bar": entry_and_exit_same_bar,
+        "forced_pessimistic_exit": forced_pessimistic_exit,
+    }
 
 
 def _summarize(
