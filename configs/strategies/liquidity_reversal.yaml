@@ -1,0 +1,85 @@
+strategy: liquidity_reversal
+config_version: pr12_final_restricted_variant_b
+status: formalized_research_candidate
+live_trading_enabled: false
+formalized_candidate: restricted_variant_b
+
+scope:
+  assets: [BTC, ETH]
+  market: SWAP
+  profile_scope: C_only
+  diagnostic_profiles: [B]
+
+candidate_family:
+  tier_1:
+    enabled: true
+    setups:
+      - name: session_hl_attempt4_fixed_current
+        structure_source: Session_HL
+        attempt_type: attempt_4_displacement_entry
+        exit_profile: fixed_2R_time_cut
+        sizing_policy: current_risk_based_sizing
+      - name: recent_swing_attempt4_dynamic_quality
+        structure_source: recent_swing
+        attempt_type: attempt_4_displacement_entry
+        exit_profile: dynamic_time_cut
+        sizing_policy: quality_aware_capped_sizing
+  positive_tier_2:
+    enabled: true
+    setups:
+      - name: session_hl_attempt3_dynamic_quality
+        structure_source: Session_HL
+        attempt_type: attempt_3_choch_mss_entry
+        exit_profile: dynamic_time_cut
+        sizing_policy: quality_aware_capped_sizing
+  tier_3:
+    enabled: false
+
+risk_restrictions:
+  portfolio_heat_cap: 0.05
+  max_concurrent_positions_observed: 10
+  same_direction_overlap_observed: 303
+  duplicate_event_count_required: 0
+  liquidation_event_count_required: 0
+
+proposal_boundaries:
+  session_hl_source: formalized_for_restricted_variant_b_only
+  dynamic_time_cut: formalized_for_restricted_variant_b_only
+  quality_aware_capped_sizing: formalized_for_restricted_variant_b_only
+  b_profile: diagnostic_only
+  rolling_range: diagnostic_only
+  pdh_pdl: diagnostic_only
+  eqh_eql: diagnostic_only
+  runner_exit: diagnostic_only
+  partial_tp: diagnostic_only
+  structure_target: diagnostic_only
+  unexecuted_proposal_rows: excluded_from_performance
+
+not_formalized:
+  unrestricted_variant_b: false
+  full_original_family: false
+  tier3: false
+  b_profile_main_config: false
+  pdh_pdl_active_source: false
+  eqh_eql_active_source: false
+  runner: false
+  partial_tp_structure_target: false
+  structure_target_only: false
+
+validated_metrics:
+  source: storage/backtest_cache/pr11h_fix/lr_robustness_fix_result.json
+  restricted_variant_b:
+    closed: 183
+    total_R: 85.06990218742838
+    net_R_avg: 0.4648628534832152
+    profit_factor: 7.795271510312894
+    max_concurrent_positions: 10
+    same_direction_overlap_count: 303
+    portfolio_heat_max: 0.049999999999999996
+  full_audit:
+    audit_passed: true
+    accepted_warnings: 136
+
+rollback:
+  baseline_config: configs/strategies/trend_price_volume_swap_proposal.toml
+  fallback_candidate: Variant A Tier 1 only

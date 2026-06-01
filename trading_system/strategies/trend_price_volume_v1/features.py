@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -70,6 +71,11 @@ class StrategyParameters:
     sweep_rvol_min: float = 1.5
     countertrend_sweep_rvol_min: float = 2.0
     reclaim_max_bars: int = 5
+    reclaim_rvol_max: float = math.inf
+    require_choch_for_eth_reversal: bool = False
+    require_choch_for_countertrend: bool = False
+    invalidation_mode: str = "atr_buffer"
+    invalidation_buffer_atr: float = 1.0
 
 
 def build_market_regime(candles: Sequence[object]) -> MarketRegimeContext | None:
@@ -148,6 +154,7 @@ def detect_price_action_setup(
     entry_candles: Sequence[object],
     regime: MarketRegimeContext | None,
     parameters: StrategyParameters | None = None,
+    context_features: Mapping[str, Any] | None = None,
 ) -> PriceActionSetup | None:
     structure = _confirmed_candles(structure_candles)
     entry = _confirmed_candles(entry_candles)
@@ -155,11 +162,11 @@ def detect_price_action_setup(
         return None
 
     params = parameters or StrategyParameters()
-    trend_continuation = _detect_trend_continuation(structure, entry, regime, params)
+    trend_continuation = _detect_trend_continuation(structure, entry, regime, params, context_features)
     if trend_continuation is not None:
         return trend_continuation
 
-    return _detect_liquidity_reversal(structure, entry, regime, params)
+    return _detect_liquidity_reversal(structure, entry, regime, params, context_features)
 
 
 def confirm_volume_price(
@@ -172,9 +179,12 @@ def confirm_volume_price(
         return _volume_result("cooldown", {"reason": "insufficient_confirmed_candles"})
 
     latest = confirmed[-1]
-    history = confirmed[-21:-1] if len(confirmed) >= 21 else confirmed[:-1]
-    average_volume, volume_source = _volume_baseline(history, context_features)
+    use_tod_dow = _volume_config(context_features).get("baseline_mode") == "tod_dow_log_ewma"
+    history = confirmed[:-1] if use_tod_dow else confirmed[-21:-1] if len(confirmed) >= 21 else confirmed[:-1]
     latest_volume = _candle_volume(latest)
+    volume_baseline = _volume_baseline(history, context_features, anchor=latest, current_volume=latest_volume)
+    average_volume = volume_baseline["average_volume"]
+    volume_source = str(volume_baseline["volume_source"])
     if average_volume <= 0:
         return _volume_result("anomaly", {"reason": "non_positive_average_volume", "latest_volume": latest_volume})
 
@@ -194,6 +204,7 @@ def confirm_volume_price(
         "volume_ratio": volume_ratio,
         "volume_source": volume_source,
         "price_state": _price_state(latest),
+        **volume_baseline,
     }
     if context_features and "ttm_squeeze_on" in context_features:
         evidence["ttm_squeeze_on"] = bool(context_features["ttm_squeeze_on"])
@@ -220,6 +231,7 @@ def _detect_trend_continuation(
     entry: tuple[object, ...],
     regime: MarketRegimeContext,
     params: StrategyParameters,
+    context_features: Mapping[str, Any] | None,
 ) -> PriceActionSetup | None:
     if regime.status != "TREND" or regime.direction not in {"long", "short"} or len(structure) < 6:
         return None
@@ -232,7 +244,8 @@ def _detect_trend_continuation(
     if average_range <= 0:
         return None
 
-    volume_baseline, _ = _volume_baseline(prior[-20:], None)
+    baseline_evidence = _volume_baseline(prior, context_features, anchor=breakout, current_volume=_candle_volume(breakout))
+    volume_baseline = baseline_evidence["average_volume"]
     if volume_baseline <= 0:
         return None
 
@@ -318,6 +331,7 @@ def _detect_liquidity_reversal(
     entry: tuple[object, ...],
     regime: MarketRegimeContext,
     params: StrategyParameters,
+    context_features: Mapping[str, Any] | None,
 ) -> PriceActionSetup | None:
     average_range = _average_range(structure)
     if average_range <= 0:
@@ -328,7 +342,13 @@ def _detect_liquidity_reversal(
         sweep = structure[index]
         next_candles = structure[index + 1 : index + 1 + params.reclaim_max_bars]
         previous = structure[index - 1]
-        volume_baseline, _ = _volume_baseline(structure[:index][-20:], None)
+        volume_baseline_evidence = _volume_baseline(
+            structure[:index],
+            _structure_volume_features(context_features),
+            anchor=sweep,
+            current_volume=_candle_volume(sweep),
+        )
+        volume_baseline = volume_baseline_evidence["average_volume"]
         if volume_baseline <= 0:
             continue
         sweep_rvol = _candle_volume(sweep) / volume_baseline
@@ -341,15 +361,17 @@ def _detect_liquidity_reversal(
             countertrend = regime.direction == "short"
             required_rvol = params.countertrend_sweep_rvol_min if countertrend else params.sweep_rvol_min
             wick_ratio = _wick_ratio(sweep, "long")
+            reclaim_rvol = _candle_volume(reclaim) / volume_baseline if reclaim is not None and volume_baseline > 0 else None
             if (
                 reclaim is not None
                 and choch is not None
                 and downside_deviation <= atr * params.sweep_max_atr_multiple
                 and wick_ratio >= params.sweep_wick_ratio_min
                 and sweep_rvol >= required_rvol
+                and (reclaim_rvol is None or reclaim_rvol <= params.reclaim_rvol_max)
             ):
                 reclaim_bars = _bars_between(sweep, reclaim)
-                invalidation = float(sweep.low) - atr
+                invalidation = _invalidation_level("long", sweep, atr, params)
                 entry_low, entry_high = _entry_zone(entry)
                 target = float(entry[-1].close) + abs(float(entry[-1].close) - invalidation) * 2.0
                 return PriceActionSetup(
@@ -372,7 +394,15 @@ def _detect_liquidity_reversal(
                         "sweep_wick_ratio": wick_ratio,
                         "sweep_deviation_atr": downside_deviation / atr,
                         "reclaim_bars": reclaim_bars,
+                        "reclaim_rvol": reclaim_rvol,
+                        "reclaim_rvol_max": params.reclaim_rvol_max,
                         "countertrend": countertrend,
+                        "invalidation_mode": params.invalidation_mode,
+                        "invalidation_buffer_atr": params.invalidation_buffer_atr,
+                        "sweep_extreme_price": float(sweep.low),
+                        "reclaim_price": float(reclaim.close),
+                        "structure_level": prior_low,
+                        "volume_baseline_mode": volume_baseline_evidence["volume_baseline_mode"],
                     },
                 )
 
@@ -384,15 +414,17 @@ def _detect_liquidity_reversal(
             countertrend = regime.direction == "long"
             required_rvol = params.countertrend_sweep_rvol_min if countertrend else params.sweep_rvol_min
             wick_ratio = _wick_ratio(sweep, "short")
+            reclaim_rvol = _candle_volume(reclaim) / volume_baseline if reclaim is not None and volume_baseline > 0 else None
             if (
                 reclaim is not None
                 and choch is not None
                 and upside_deviation <= atr * params.sweep_max_atr_multiple
                 and wick_ratio >= params.sweep_wick_ratio_min
                 and sweep_rvol >= required_rvol
+                and (reclaim_rvol is None or reclaim_rvol <= params.reclaim_rvol_max)
             ):
                 reclaim_bars = _bars_between(sweep, reclaim)
-                invalidation = float(sweep.high) + atr
+                invalidation = _invalidation_level("short", sweep, atr, params)
                 entry_low, entry_high = _entry_zone(entry)
                 target = float(entry[-1].close) - abs(invalidation - float(entry[-1].close)) * 2.0
                 return PriceActionSetup(
@@ -415,7 +447,15 @@ def _detect_liquidity_reversal(
                         "sweep_wick_ratio": wick_ratio,
                         "sweep_deviation_atr": upside_deviation / atr,
                         "reclaim_bars": reclaim_bars,
+                        "reclaim_rvol": reclaim_rvol,
+                        "reclaim_rvol_max": params.reclaim_rvol_max,
                         "countertrend": countertrend,
+                        "invalidation_mode": params.invalidation_mode,
+                        "invalidation_buffer_atr": params.invalidation_buffer_atr,
+                        "sweep_extreme_price": float(sweep.high),
+                        "reclaim_price": float(reclaim.close),
+                        "structure_level": prior_high,
+                        "volume_baseline_mode": volume_baseline_evidence["volume_baseline_mode"],
                     },
                 )
     return None
@@ -429,6 +469,16 @@ def strategy_parameters_from_context(context_features: Mapping[str, Any] | None)
         return StrategyParameters()
     allowed = set(StrategyParameters.__dataclass_fields__)
     values = {key: value for key, value in raw.items() if key in allowed}
+    trend_raw = raw.get("trend_continuation")
+    if isinstance(trend_raw, Mapping):
+        values.update({key: value for key, value in trend_raw.items() if key in allowed})
+    liquidity_raw = raw.get("liquidity_reversal")
+    if isinstance(liquidity_raw, Mapping):
+        values.update({key: value for key, value in liquidity_raw.items() if key in allowed})
+        assets = liquidity_raw.get("assets")
+        asset = str(context_features.get("asset", "")).upper()
+        if isinstance(assets, Mapping) and isinstance(assets.get(asset), Mapping):
+            values.update({key: value for key, value in assets[asset].items() if key in allowed})
     return StrategyParameters(**values)
 
 
@@ -442,11 +492,81 @@ def _average_range(candles: Sequence[object]) -> float:
     return sum(float(candle.high) - float(candle.low) for candle in candles) / len(candles)
 
 
-def _volume_baseline(history: Sequence[object], context_features: Mapping[str, Any] | None) -> tuple[float, str]:
+def _volume_baseline(
+    history: Sequence[object],
+    context_features: Mapping[str, Any] | None,
+    *,
+    anchor: object | None = None,
+    current_volume: float | None = None,
+) -> dict[str, Any]:
+    history = tuple(history)
+    current = 0.0 if current_volume is None else float(current_volume)
+    if not history:
+        return {
+            "average_volume": 0.0,
+            "volume_source": "base",
+            "raw_volume": current,
+            "log_volume": _safe_log(current, 1e-12),
+            "rolling_rvol": None,
+            "tod_dow_rvol": None,
+            "volume_baseline_mode": "rolling_ewma",
+            "volume_bucket_key": "",
+            "volume_bucket_sample_count": 0,
+            "used_fallback_volume_baseline": True,
+        }
     if context_features and "tod_volume_baseline" in context_features:
-        return (float(context_features["tod_volume_baseline"]), "tod")
+        baseline = float(context_features["tod_volume_baseline"])
+        return {
+            "average_volume": baseline,
+            "volume_source": "tod",
+            "raw_volume": current,
+            "log_volume": _safe_log(current, 1e-12),
+            "rolling_rvol": None if baseline <= 0 else current / baseline,
+            "tod_dow_rvol": None if baseline <= 0 else current / baseline,
+            "volume_baseline_mode": "tod",
+            "volume_bucket_key": "",
+            "volume_bucket_sample_count": len(history),
+            "used_fallback_volume_baseline": False,
+        }
     source = "quote" if any(_has_quote_volume(candle) for candle in history) else "base"
-    return (sum(_candle_volume(candle) for candle in history) / len(history), source)
+    config = _volume_config(context_features)
+    rolling_baseline = _rolling_ewma_volume(history)
+    rolling_rvol = None if rolling_baseline <= 0 else current / rolling_baseline
+    evidence = {
+        "average_volume": rolling_baseline,
+        "volume_source": source,
+        "raw_volume": current,
+        "log_volume": _safe_log(current, _epsilon(config)),
+        "rolling_rvol": rolling_rvol,
+        "tod_dow_rvol": None,
+        "volume_baseline_mode": "rolling_ewma",
+        "volume_bucket_key": "",
+        "volume_bucket_sample_count": len(history),
+        "used_fallback_volume_baseline": False,
+    }
+    if config.get("baseline_mode") != "tod_dow_log_ewma" or anchor is None:
+        return evidence
+
+    bucket_key = _volume_bucket_key(context_features, anchor)
+    bucket_history = tuple(candle for candle in history if _volume_bucket_key(context_features, candle) == bucket_key)
+    min_samples = int(config.get("min_bucket_samples", 30))
+    evidence["volume_bucket_key"] = bucket_key
+    evidence["volume_bucket_sample_count"] = len(bucket_history)
+    if len(bucket_history) < min_samples:
+        evidence["used_fallback_volume_baseline"] = True
+        return evidence
+
+    log_baseline = _log_ewma_baseline(bucket_history, half_life_days=float(config.get("half_life_days", 90)), epsilon=_epsilon(config))
+    baseline = math.exp(log_baseline)
+    evidence.update(
+        {
+            "average_volume": baseline,
+            "tod_dow_rvol": math.exp(_safe_log(current, _epsilon(config)) - log_baseline),
+            "volume_baseline_mode": "tod_dow_log_ewma",
+            "used_fallback_volume_baseline": False,
+        }
+    )
+    return evidence
 
 
 def _candle_volume(candle: object) -> float:
@@ -492,7 +612,8 @@ def _restart_confirms(entry: Sequence[object], direction: str, params: StrategyP
         return False
     latest = entry[-1]
     previous = entry[-4:-1] if len(entry) >= 4 else entry[:-1]
-    baseline, _ = _volume_baseline(previous[-20:], None)
+    baseline_evidence = _volume_baseline(previous[-20:], None, anchor=latest, current_volume=_candle_volume(latest))
+    baseline = baseline_evidence["average_volume"]
     latest_rvol = _candle_volume(latest) / baseline if baseline > 0 else 0.0
     if latest_rvol < params.restart_rvol_min or not _price_accepts_direction(latest, direction):
         return False
@@ -536,6 +657,72 @@ def _bars_between(first: object, second: object) -> int:
     if first_ts is None or second_ts is None:
         return 0 if first is second else 1
     return 0 if first_ts == second_ts else 1
+
+
+def _invalidation_level(direction: str, sweep: object, atr: float, params: StrategyParameters) -> float:
+    if params.invalidation_mode == "structure_extreme_buffer":
+        if direction == "long":
+            return float(sweep.low) - params.invalidation_buffer_atr * atr
+        return float(sweep.high) + params.invalidation_buffer_atr * atr
+    if direction == "long":
+        return float(sweep.low) - atr
+    return float(sweep.high) + atr
+
+
+def _volume_config(context_features: Mapping[str, Any] | None) -> Mapping[str, Any]:
+    if not context_features:
+        return {}
+    raw = context_features.get("volume")
+    return raw if isinstance(raw, Mapping) else {}
+
+
+def _structure_volume_features(context_features: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    if not context_features:
+        return None
+    features = dict(context_features)
+    if "structure_timeframe" in features:
+        features["entry_timeframe"] = features["structure_timeframe"]
+    return features
+
+
+def _epsilon(config: Mapping[str, Any]) -> float:
+    raw = config.get("epsilon", 1e-12)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 1e-12
+    return value if value > 0 else 1e-12
+
+
+def _safe_log(value: float, epsilon: float) -> float:
+    return math.log(max(float(value), epsilon))
+
+
+def _rolling_ewma_volume(history: Sequence[object]) -> float:
+    if not history:
+        return 0.0
+    return sum(_candle_volume(candle) for candle in history) / len(history)
+
+
+def _log_ewma_baseline(history: Sequence[object], *, half_life_days: float, epsilon: float) -> float:
+    if not history:
+        return 0.0
+    alpha = 1.0 - math.exp(math.log(0.5) / max(half_life_days, 1.0))
+    value = _safe_log(_candle_volume(history[0]), epsilon)
+    for candle in history[1:]:
+        value = alpha * _safe_log(_candle_volume(candle), epsilon) + (1.0 - alpha) * value
+    return value
+
+
+def _volume_bucket_key(context_features: Mapping[str, Any] | None, candle: object) -> str:
+    asset = ""
+    timeframe = ""
+    if context_features:
+        asset = str(context_features.get("asset", ""))
+        timeframe = str(context_features.get("entry_timeframe", context_features.get("timeframe", "")))
+    timestamp_ms = int(getattr(candle, "timestamp_ms"))
+    current = datetime.fromtimestamp(timestamp_ms / 1000, UTC)
+    return f"{asset}|{timeframe}|{current.weekday()}|{current.hour}"
 
 
 def _volume_result(status: str, evidence: Mapping[str, object]) -> VolumePriceConfirmation:

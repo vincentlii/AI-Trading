@@ -107,6 +107,7 @@ def _diagnose_target_profile(
                     signal_timestamp_ms,
                 ),
             },
+            features=_context_features(target, profile, preset),
         )
         execution_candles = tuple(entry_candles[index + 1 : index + 1 + max_holding_bars])
         windows_checked += 1
@@ -133,6 +134,7 @@ def _diagnose_target_profile(
             context.candles_by_timeframe[profile.entry_timeframe],
             regime,
             parameters,
+            context_features=context.features,
         )
         if setup is None:
             stage_counts["price_action_rejected"] += 1
@@ -245,6 +247,18 @@ def _row(target, profile, counts, windows_checked, stage_counts, reason_codes) -
         **{stage: stage_counts[stage] for stage in FUNNEL_STAGES},
         "reason_codes": tuple(sorted(reason_codes)),
         "next_action": _next_action(stage_counts),
+    }
+
+
+def _context_features(target, profile, preset: BacktestPresetConfig) -> dict[str, object]:
+    asset = target.canonical_symbol.split("/", 1)[0].upper()
+    return {
+        "asset": asset,
+        "timeframe_group": profile.key,
+        "entry_timeframe": profile.entry_timeframe,
+        "structure_timeframe": profile.structure_timeframe,
+        "strategy_parameters": preset.strategy.parameters,
+        "volume": preset.strategy.volume,
     }
 
 

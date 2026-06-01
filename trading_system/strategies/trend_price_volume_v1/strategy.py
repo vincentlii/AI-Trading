@@ -50,7 +50,13 @@ class TrendPriceVolumeStrategy(Strategy):
             return ()
 
         parameters = strategy_parameters_from_context(context.features)
-        setup = detect_price_action_setup(structure_candles, entry_candles, regime, parameters)
+        setup = detect_price_action_setup(
+            structure_candles,
+            entry_candles,
+            regime,
+            parameters,
+            context_features=context.features,
+        )
         if setup is None:
             return ()
 

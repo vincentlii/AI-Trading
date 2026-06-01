@@ -1,0 +1,97 @@
+{
+  "strategy": "liquidity_reversal",
+  "stage": "PR12_final",
+  "final_candidate": "restricted_variant_b",
+  "final_config_path": "configs/strategies/liquidity_reversal.yaml",
+  "final_config_hash_sha256": "9812b82e7caf15be1870b014e1ae3fb3ede324ecaf7c35e74acc335975fe442e",
+  "source_of_truth": {
+    "clean_rebuild": "storage/backtest_cache/pr11g_clean_rebuild",
+    "full_audit": "storage/backtest_cache/pr11g_clean_rebuild/full_audit/full_pipeline_audit_result.json",
+    "robustness": "storage/backtest_cache/pr11h_robustness/lr_robustness_validation_result.json",
+    "exposure_restriction": "storage/backtest_cache/pr11h_fix/lr_robustness_fix_result.json"
+  },
+  "restricted_variant_b": {
+    "description": "Tier 1 + Positive Tier 2 with portfolio_heat_cap_5pct",
+    "closed": 183,
+    "total_R": 85.06990218742838,
+    "net_R_avg": 0.4648628534832152,
+    "profit_factor": 7.795271510312894,
+    "max_drawdown": 3.7195218960184917,
+    "max_concurrent_positions": 10,
+    "same_direction_overlap_count": 303,
+    "portfolio_heat_cap": 0.05,
+    "portfolio_heat_max": 0.049999999999999996,
+    "stress": {
+      "total_R": 75.91990218742838,
+      "net_R_avg": 0.41486285348321517,
+      "profit_factor": 5.860744928751422
+    },
+    "harsh": {
+      "total_R": 63.10990218742838,
+      "net_R_avg": 0.3448628534832152,
+      "profit_factor": 4.13895240119462
+    },
+    "extreme_harsh": {
+      "total_R": 48.46990218742838,
+      "net_R_avg": 0.2648628534832152,
+      "profit_factor": 2.91268077221939
+    }
+  },
+  "variant_a_baseline": {
+    "closed": 131,
+    "total_R": 73.22174008875376,
+    "net_R_avg": 0.5589445808301814,
+    "profit_factor": 17.61906836981626,
+    "max_concurrent_positions": 21,
+    "same_direction_overlap_count": 370,
+    "portfolio_heat_max": 0.10500000000000002
+  },
+  "lr_v1_attempt_baselines": {
+    "attempt_1_reclaim": {
+      "closed": 417,
+      "net_R_avg": 0.13751868531003553
+    },
+    "attempt_3_choch_mss": {
+      "closed": 376,
+      "net_R_avg": 0.15308385606271244,
+      "profit_factor": 2.1515847353518303
+    },
+    "attempt_4_displacement": {
+      "closed": 133,
+      "net_R_avg": 0.4309,
+      "profit_factor": 5.63
+    }
+  },
+  "full_audit": {
+    "audit_passed": true,
+    "primary_decision": "B",
+    "blocking_issues": 0,
+    "accepted_warnings": 136,
+    "performance_source": "row_type=closed_trade"
+  },
+  "robustness": {
+    "preflight_passed": true,
+    "walk_forward_positive_windows": "5/5",
+    "monte_carlo_seeds": 1000,
+    "ruin_like_scenario_count": 0
+  },
+  "profile_scope": {
+    "formal_profile": "C",
+    "diagnostic_profile": "B",
+    "b_fresh_candidates": 2828,
+    "b_formal_approved": 13,
+    "c_fresh_candidates": 2824,
+    "c_formal_approved": 404
+  },
+  "duplicate_event_count": 0,
+  "liquidation_event_count": 0,
+  "proposal_boundaries": {
+    "unrestricted_variant_b": "not_formalized",
+    "full_original_family": "not_formalized",
+    "tier3": "diagnostic_only",
+    "rolling_range": "diagnostic_only",
+    "pdh_pdl": "diagnostic_only",
+    "eqh_eql": "diagnostic_only",
+    "runner_partial_structure_target": "diagnostic_only"
+  }
+}

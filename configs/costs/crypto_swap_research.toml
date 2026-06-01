@@ -1,0 +1,20 @@
+name = "crypto_swap_research"
+description = "Research-only OKX USDT swap cost assumptions. Dynamic funding history is not used in this proposal."
+fee_rate = 0.001
+spread = 0.0
+slippage = 0.0
+spread_slippage_rate = 0.0002
+funding = 0.0
+funding_mode = "static_config_only"
+
+[cost_model_tiers.base]
+fee_rate = 0.001
+spread_slippage_rate = 0.0002
+
+[cost_model_tiers.stress]
+fee_rate = 0.001
+spread_slippage_rate = 0.0005
+
+[cost_model_tiers.harsh]
+fee_rate = 0.001
+spread_slippage_rate = 0.0010

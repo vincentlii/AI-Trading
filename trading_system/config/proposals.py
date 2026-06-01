@@ -10,6 +10,7 @@ from trading_system.backtest.risk import RiskParameters
 from trading_system.config.loader import (
     BacktestPresetConfig,
     ConfigError,
+    CostTierConfig,
 )
 
 
@@ -30,7 +31,10 @@ ALLOWED_CHANGE_PATHS = {
     "costs.fee_rate",
     "costs.spread",
     "costs.slippage",
+    "costs.spread_slippage_rate",
     "costs.funding",
+    "costs.funding_mode",
+    "costs.cost_model_tiers",
     "execution.initial_equity",
     "execution.max_holding_bars",
     "execution.conservative_same_bar",
@@ -39,11 +43,24 @@ ALLOWED_CHANGE_PATHS = {
     "execution.partial_take_profit_r",
     "execution.partial_take_profit_pct",
     "execution.move_stop_to_true_breakeven",
+    "execution.breakeven_after_mfe_r",
     "execution.chandelier_period",
     "execution.chandelier_atr_multiple",
+    "execution.invalidation_mode",
+    "execution.invalidation_buffer_atr",
+    "execution.invalidation_buffer_atr_candidates",
+    "execution.shadow_max_stop_atr_multiple_candidates",
+    "execution.reversal_time_cut_bars",
+    "execution.reversal_time_cut_min_mfe_r",
+    "execution.reversal_time_cut_bars_candidates",
+    "execution.reversal_time_cut_min_mfe_r_candidates",
     "scan.profile_keys",
     "strategy.enabled",
     "strategy.enabled_setups",
+    "strategy.parameters",
+    "strategy.parameter_grid",
+    "strategy.profile_status",
+    "strategy.volume",
     "ranking.fast_profile_fee_reject_threshold",
     "ranking.min_trades_for_primary",
 }
@@ -169,6 +186,16 @@ def _normalize_after_value(current_value: object, after: object) -> object:
     if isinstance(current_value, tuple):
         if not isinstance(after, list | tuple):
             raise ProposalError("tuple fields require list or tuple proposed values")
+        if current_value and isinstance(current_value[0], CostTierConfig):
+            return tuple(
+                CostTierConfig(
+                    name=_required_text(item.get("name"), "cost_tier.name"),
+                    fee_rate=float(item.get("fee_rate")),
+                    spread_slippage_rate=float(item.get("spread_slippage_rate")),
+                )
+                for item in after
+                if isinstance(item, Mapping)
+            )
         return tuple(after)
     if isinstance(current_value, bool):
         if not isinstance(after, bool):
@@ -209,7 +236,11 @@ def _validate_preset(preset: BacktestPresetConfig) -> None:
     _non_negative("costs.fee_rate", preset.costs.fee_rate)
     _non_negative("costs.spread", preset.costs.spread)
     _non_negative("costs.slippage", preset.costs.slippage)
+    _non_negative("costs.spread_slippage_rate", preset.costs.spread_slippage_rate)
     _non_negative("costs.funding", preset.costs.funding)
+    for tier in preset.costs.cost_model_tiers:
+        _non_negative(f"costs.cost_model_tiers.{tier.name}.fee_rate", tier.fee_rate)
+        _non_negative(f"costs.cost_model_tiers.{tier.name}.spread_slippage_rate", tier.spread_slippage_rate)
     if preset.costs.fee_rate > 0.05:
         raise ConfigError("fee_rate must be <= 0.05")
 

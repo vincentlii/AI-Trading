@@ -46,6 +46,14 @@ class RejectionDetailEvent:
     volume_ratio: float | None = None
     latest_volume: float | None = None
     average_volume: float | None = None
+    raw_volume: float | None = None
+    log_volume: float | None = None
+    rolling_rvol: float | None = None
+    tod_dow_rvol: float | None = None
+    volume_baseline_mode: str = ""
+    volume_bucket_key: str = ""
+    volume_bucket_sample_count: int = 0
+    used_fallback_volume_baseline: bool = False
     price_state: str = ""
     risk_reason_codes: tuple[str, ...] = ()
     entry_price: float | None = None
@@ -57,7 +65,11 @@ class RejectionDetailEvent:
     reward_to_risk: float | None = None
     estimated_cost_r: float | None = None
     net_reward_to_risk: float | None = None
+    min_stop_atr_multiple: float | None = None
     max_stop_atr_multiple: float | None = None
+    formal_approved: bool = False
+    shadow_approved_5: bool = False
+    shadow_approved_8: bool = False
 
 
 @dataclass(frozen=True)
@@ -174,6 +186,7 @@ def _build_target_profile_events(
                     signal_timestamp_ms,
                 ),
             },
+            features=_context_features(target, profile, preset),
         )
         execution_candles = tuple(entry_candles[index + 1 : index + 1 + max_holding_bars])
         windows_checked += 1
@@ -191,6 +204,7 @@ def _build_target_profile_events(
             context.candles_by_timeframe[profile.entry_timeframe],
             regime,
             parameters,
+            context_features=context.features,
         )
         if setup is None:
             continue
@@ -271,6 +285,7 @@ def _build_target_profile_events(
                 base_event,
                 terminal_stage=final_stage,
                 risk_reason_codes=decision.reason_codes,
+                formal_approved=decision.approved_order is not None,
                 **risk_metrics,
             )
         )
@@ -315,10 +330,19 @@ def _build_base_event(
         volume_ratio=volume_ratio,
         latest_volume=_as_float(evidence.get("latest_volume")),
         average_volume=_as_float(evidence.get("average_volume")),
+        raw_volume=_as_float(evidence.get("raw_volume")),
+        log_volume=_as_float(evidence.get("log_volume")),
+        rolling_rvol=_as_float(evidence.get("rolling_rvol")),
+        tod_dow_rvol=_as_float(evidence.get("tod_dow_rvol")),
+        volume_baseline_mode=str(evidence.get("volume_baseline_mode", "")),
+        volume_bucket_key=str(evidence.get("volume_bucket_key", "")),
+        volume_bucket_sample_count=int(evidence.get("volume_bucket_sample_count", 0) or 0),
+        used_fallback_volume_baseline=bool(evidence.get("used_fallback_volume_baseline", False)),
         price_state=price_state,
         entry_price=None,
         stop_loss=setup.invalidation_level,
         target_price=setup.target_price,
+        min_stop_atr_multiple=None,
         max_stop_atr_multiple=None,
     )
 
@@ -330,6 +354,7 @@ def _replace_event(event: RejectionDetailEvent, **overrides) -> RejectionDetailE
 
 
 def _risk_metrics(intent, atr: float | None, preset: BacktestPresetConfig) -> dict[str, float | None]:
+    min_stop = preset.risk.min_stop_atr_multiple
     max_stop = preset.risk.max_stop_atr_multiple
     if intent is None:
         return {
@@ -342,7 +367,10 @@ def _risk_metrics(intent, atr: float | None, preset: BacktestPresetConfig) -> di
             "reward_to_risk": None,
             "estimated_cost_r": None,
             "net_reward_to_risk": None,
+            "min_stop_atr_multiple": min_stop,
             "max_stop_atr_multiple": max_stop,
+            "shadow_approved_5": False,
+            "shadow_approved_8": False,
         }
 
     stop_distance = intent.stop_distance
@@ -352,17 +380,21 @@ def _risk_metrics(intent, atr: float | None, preset: BacktestPresetConfig) -> di
     net_reward_to_risk = (
         None if reward_to_risk is None or estimated_cost_r is None else reward_to_risk - estimated_cost_r
     )
+    stop_atr_multiple = None if atr is None or atr <= 0 else stop_distance / atr
     return {
         "entry_price": intent.entry_price,
         "stop_loss": intent.stop_loss,
         "target_price": intent.target_price,
         "atr": atr,
         "stop_distance": stop_distance,
-        "stop_atr_multiple": None if atr is None or atr <= 0 else stop_distance / atr,
+        "stop_atr_multiple": stop_atr_multiple,
         "reward_to_risk": reward_to_risk,
         "estimated_cost_r": estimated_cost_r,
         "net_reward_to_risk": net_reward_to_risk,
+        "min_stop_atr_multiple": min_stop,
         "max_stop_atr_multiple": max_stop,
+        "shadow_approved_5": _shadow_stop_allowed(stop_atr_multiple, min_stop, 5.0),
+        "shadow_approved_8": _shadow_stop_allowed(stop_atr_multiple, min_stop, 8.0),
     }
 
 
@@ -401,6 +433,9 @@ def _build_volume_rejection_rows(events: Sequence[RejectionDetailEvent]) -> tupl
                 "reject": statuses["reject"],
                 "cooldown": statuses["cooldown"],
                 "anomaly": statuses["anomaly"],
+                "volume_baseline_mode": _first_text(group, "volume_baseline_mode"),
+                "fallback_bucket_count": sum(1 for event in group if event.used_fallback_volume_baseline),
+                "fallback_bucket_ratio": sum(1 for event in group if event.used_fallback_volume_baseline) / len(group),
             }
         )
         for reason in VOLUME_REASONS:
@@ -443,6 +478,10 @@ def _build_risk_rejection_rows(events: Sequence[RejectionDetailEvent]) -> tuple[
                 "reason_code": reason,
                 "candidate_count": len(group),
                 "max_stop_atr_multiple": _first_float(group, "max_stop_atr_multiple"),
+                "min_stop_atr_multiple": _first_float(group, "min_stop_atr_multiple"),
+                "formal_approved": sum(1 for event in group if event.formal_approved),
+                "shadow_approved_5": sum(1 for event in group if event.shadow_approved_5),
+                "shadow_approved_8": sum(1 for event in group if event.shadow_approved_8),
             }
         )
         row.update(_percentile_summary(_values(group, "stop_distance"), prefix="stop_distance"))
@@ -510,11 +549,28 @@ def _event_row(event: RejectionDetailEvent) -> dict[str, object]:
         "volume_status": event.volume_status,
         "volume_reason": event.volume_reason,
         "volume_ratio": event.volume_ratio,
+        "raw_volume": event.raw_volume,
+        "log_volume": event.log_volume,
+        "rolling_rvol": event.rolling_rvol,
+        "tod_dow_rvol": event.tod_dow_rvol,
+        "volume_baseline_mode": event.volume_baseline_mode,
+        "volume_bucket_key": event.volume_bucket_key,
+        "volume_bucket_sample_count": event.volume_bucket_sample_count,
+        "used_fallback_volume_baseline": event.used_fallback_volume_baseline,
         "risk_reason_codes": event.risk_reason_codes,
+        "entry_price": event.entry_price,
+        "stop_price": event.stop_loss,
+        "stop_distance_abs": event.stop_distance,
+        "stop_distance_pct": None if event.entry_price in (None, 0) or event.stop_distance is None else event.stop_distance / event.entry_price,
         "stop_distance": event.stop_distance,
         "atr": event.atr,
+        "atr_value": event.atr,
         "stop_atr_multiple": event.stop_atr_multiple,
+        "min_stop_atr_multiple": event.min_stop_atr_multiple,
         "max_stop_atr_multiple": event.max_stop_atr_multiple,
+        "formal_approved": event.formal_approved,
+        "shadow_approved_5": event.shadow_approved_5,
+        "shadow_approved_8": event.shadow_approved_8,
         "reward_to_risk": event.reward_to_risk,
         "estimated_cost_r": event.estimated_cost_r,
         "net_reward_to_risk": event.net_reward_to_risk,
@@ -585,6 +641,24 @@ def _group_row(key: Sequence[object]) -> dict[str, object]:
     }
 
 
+def _context_features(target, profile, preset: BacktestPresetConfig) -> dict[str, object]:
+    asset = target.canonical_symbol.split("/", 1)[0].upper()
+    return {
+        "asset": asset,
+        "timeframe_group": profile.key,
+        "entry_timeframe": profile.entry_timeframe,
+        "structure_timeframe": profile.structure_timeframe,
+        "strategy_parameters": preset.strategy.parameters,
+        "volume": preset.strategy.volume,
+    }
+
+
+def _shadow_stop_allowed(stop_atr_multiple: float | None, min_stop: float, max_stop: float) -> bool:
+    if stop_atr_multiple is None:
+        return False
+    return min_stop <= stop_atr_multiple <= max_stop
+
+
 def _sort_row(row: Mapping[str, object]) -> tuple[object, ...]:
     return (
         row.get("symbol", ""),
@@ -612,6 +686,14 @@ def _first_float(events: Sequence[RejectionDetailEvent], attr: str) -> float | N
         if value is not None:
             return float(value)
     return None
+
+
+def _first_text(events: Sequence[RejectionDetailEvent], attr: str) -> str:
+    for event in events:
+        value = getattr(event, attr)
+        if value:
+            return str(value)
+    return ""
 
 
 def _price_state_accepts_direction(price_state: str, direction: str) -> bool:

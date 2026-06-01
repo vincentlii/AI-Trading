@@ -13,6 +13,7 @@ from trading_system.timeframe_profiles import get_profile
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PRESET_PATH = PROJECT_ROOT / "configs" / "presets" / "btc_eth_p4_4.toml"
+SWAP_PRESET_PATH = PROJECT_ROOT / "configs" / "presets" / "btc_eth_swap_proposal.toml"
 
 
 def _candle(index: int, open_price: float, high: float, low: float, close: float) -> Candle:
@@ -40,6 +41,23 @@ def _repository_with_btc_eth_abc_data() -> CandleRepository:
     for inst_id in ("BTC-USDT", "ETH-USDT"):
         for bar in ("5m", "15m", "1H", "4H", "1D"):
             repository.save_many(inst_id, bar, candles)
+    return repository
+
+
+def _repository_with_btc_eth_swap_bc_data() -> CandleRepository:
+    repository = CandleRepository()
+    candles = (
+        _candle(1, 100.0, 104.0, 99.0, 102.0),
+        _candle(2, 102.0, 105.0, 100.0, 104.0),
+        _candle(3, 104.0, 106.0, 101.0, 105.0),
+        _candle(4, 100.0, 112.0, 99.0, 111.0),
+    )
+    for inst_id in ("BTC-USDT-SWAP", "ETH-USDT-SWAP"):
+        for bar in ("15m", "1H", "4H", "1D"):
+            repository.save_many(inst_id, bar, candles, inst_type="SWAP")
+    for inst_id in ("BTC-USDT", "ETH-USDT"):
+        for bar in ("15m", "1H", "4H", "1D"):
+            repository.save_many(inst_id, bar, candles, inst_type="SPOT")
     return repository
 
 
@@ -158,6 +176,31 @@ class BacktestBatchTests(unittest.TestCase):
         report = runner.run()
 
         self.assertEqual(report.to_rows(), ())
+
+    def test_swap_proposal_runner_scans_only_swap_bc_and_reports_contract_direction_fields(self):
+        preset = load_backtest_preset(SWAP_PRESET_PATH)
+        runner = BacktestBatchRunner(
+            repository=_repository_with_btc_eth_swap_bc_data(),
+            preset=preset,
+            strategy=OneSignalPerProfileStrategy(),
+        )
+
+        report = runner.run()
+
+        self.assertEqual(len(report.scan_result.profile_runs), 4)
+        self.assertEqual({run.profile_key for run in report.scan_result.profile_runs}, {"B", "C"})
+        self.assertEqual({run.target.inst_type for run in report.scan_result.profile_runs}, {"SWAP"})
+        self.assertEqual({run.target.inst_id for run in report.scan_result.profile_runs}, {"BTC-USDT-SWAP", "ETH-USDT-SWAP"})
+        rows = report.to_rows()
+        self.assertTrue(rows)
+        self.assertEqual({row["inst_type"] for row in rows}, {"SWAP"})
+        self.assertEqual({row["contract_mode"] for row in rows}, {"usdt_swap"})
+        self.assertEqual({row["allow_short"] for row in rows}, {True})
+        self.assertEqual({row["direction"] for row in rows}, {"long"})
+        self.assertGreaterEqual(rows[0]["long_trades"], 1)
+        self.assertEqual(rows[0]["short_trades"], 0)
+        self.assertIn("long_expectancy_R", rows[0])
+        self.assertIn("short_expectancy_R", rows[0])
 
 
 def _summary(
