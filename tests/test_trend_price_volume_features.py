@@ -39,6 +39,21 @@ def _candle(
     )
 
 
+def _hourly_candle(index: int, volume: float) -> CandleStub:
+    timestamp_ms = 1_700_000_000_000 + index * 3_600_000
+    return CandleStub(
+        timestamp_ms=timestamp_ms,
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        volume=volume,
+        volume_currency=volume,
+        volume_currency_quote=volume,
+        is_confirmed=True,
+    )
+
+
 def _import_features():
     try:
         return importlib.import_module("trading_system.strategies.trend_price_volume_v1.features")
@@ -241,6 +256,85 @@ class TrendPriceVolumeFeatureTests(unittest.TestCase):
 
         self.assertIsNone(setup)
 
+    def test_strategy_parameters_resolve_asset_specific_liquidity_overrides(self):
+        features = _import_features()
+
+        btc_params = features.strategy_parameters_from_context(
+            {
+                "asset": "BTC",
+                "timeframe_group": "B",
+                "strategy_parameters": {
+                    "liquidity_reversal": {
+                        "assets": {
+                            "BTC": {
+                                "sweep_max_atr_multiple": 0.8,
+                                "sweep_wick_ratio_min": 0.35,
+                                "sweep_rvol_min": 1.8,
+                                "countertrend_sweep_rvol_min": 2.5,
+                                "reclaim_max_bars": 3,
+                                "reclaim_rvol_max": 1.2,
+                                "require_choch_for_countertrend": True,
+                            },
+                            "ETH": {
+                                "sweep_wick_ratio_min": 0.40,
+                                "sweep_rvol_min": 2.0,
+                                "countertrend_sweep_rvol_min": 2.8,
+                                "require_choch_for_eth_reversal": True,
+                            },
+                        }
+                    }
+                },
+            }
+        )
+        eth_params = features.strategy_parameters_from_context(
+            {
+                "asset": "ETH",
+                "timeframe_group": "B",
+                "strategy_parameters": {
+                    "liquidity_reversal": {
+                        "assets": {
+                            "BTC": {"sweep_wick_ratio_min": 0.35},
+                            "ETH": {
+                                "sweep_wick_ratio_min": 0.40,
+                                "sweep_rvol_min": 2.0,
+                                "countertrend_sweep_rvol_min": 2.8,
+                                "require_choch_for_eth_reversal": True,
+                            },
+                        }
+                    }
+                },
+            }
+        )
+
+        self.assertEqual(btc_params.sweep_max_atr_multiple, 0.8)
+        self.assertEqual(btc_params.sweep_wick_ratio_min, 0.35)
+        self.assertEqual(btc_params.reclaim_max_bars, 3)
+        self.assertEqual(btc_params.reclaim_rvol_max, 1.2)
+        self.assertTrue(btc_params.require_choch_for_countertrend)
+        self.assertEqual(eth_params.sweep_wick_ratio_min, 0.40)
+        self.assertEqual(eth_params.countertrend_sweep_rvol_min, 2.8)
+        self.assertTrue(eth_params.require_choch_for_eth_reversal)
+
+    def test_structure_extreme_buffer_invalidation_uses_sweep_extreme_plus_small_atr_buffer(self):
+        features = _import_features()
+        regime = features.build_market_regime(_bullish_regime_candles())
+        params = features.StrategyParameters(
+            invalidation_mode="structure_extreme_buffer",
+            invalidation_buffer_atr=0.15,
+        )
+
+        setup = features.detect_price_action_setup(
+            _liquidity_reversal_structure(),
+            _entry_candles(),
+            regime,
+            params,
+        )
+
+        self.assertIsNotNone(setup)
+        self.assertEqual(setup.evidence["invalidation_mode"], "structure_extreme_buffer")
+        self.assertEqual(setup.evidence["invalidation_buffer_atr"], 0.15)
+        self.assertAlmostEqual(setup.invalidation_level, setup.evidence["sweep_extreme_price"] - regime.atr * 0.15)
+
     def test_volume_price_prefers_quote_volume_for_crypto(self):
         features = _import_features()
         candles = tuple(
@@ -276,6 +370,57 @@ class TrendPriceVolumeFeatureTests(unittest.TestCase):
         confirmation = features.confirm_volume_price(candles, "long")
 
         self.assertEqual(confirmation.status, "reject")
+
+    def test_tod_dow_log_ewma_rvol_uses_prior_bucket_only_and_reports_fallback(self):
+        features = _import_features()
+        matching_history = tuple(_hourly_candle(index * 24 * 7, 100.0) for index in range(30))
+        other_bucket_spikes = tuple(_hourly_candle(index * 24 * 7 + 1, 10_000.0) for index in range(30))
+        latest = _hourly_candle(30 * 24 * 7, 200.0)
+        context_features = {
+            "volume": {
+                "baseline_mode": "tod_dow_log_ewma",
+                "half_life_days": 90,
+                "min_bucket_samples": 30,
+                "fallback_mode": "rolling_ewma",
+                "epsilon": 1e-12,
+            },
+            "asset": "BTC",
+            "entry_timeframe": "1h",
+        }
+
+        confirmation = features.confirm_volume_price((*matching_history, *other_bucket_spikes, latest), "long", context_features)
+
+        self.assertEqual(confirmation.evidence["volume_baseline_mode"], "tod_dow_log_ewma")
+        self.assertFalse(confirmation.evidence["used_fallback_volume_baseline"])
+        self.assertEqual(confirmation.evidence["volume_bucket_sample_count"], 30)
+        self.assertAlmostEqual(confirmation.evidence["tod_dow_rvol"], 2.0, places=6)
+        self.assertAlmostEqual(confirmation.evidence["rolling_rvol"], 200.0 / 5050.0, places=6)
+        self.assertEqual(confirmation.evidence["raw_volume"], 200.0)
+        self.assertAlmostEqual(confirmation.evidence["log_volume"], 5.298317366548036, places=6)
+
+    def test_tod_dow_log_ewma_rvol_falls_back_when_bucket_is_too_small(self):
+        features = _import_features()
+        candles = tuple(_hourly_candle(index, 100.0) for index in range(10))
+        latest = _hourly_candle(10, 200.0)
+
+        confirmation = features.confirm_volume_price(
+            (*candles, latest),
+            "long",
+            {
+                "volume": {
+                    "baseline_mode": "tod_dow_log_ewma",
+                    "min_bucket_samples": 30,
+                    "fallback_mode": "rolling_ewma",
+                    "epsilon": 1e-12,
+                },
+                "asset": "BTC",
+                "entry_timeframe": "1h",
+            },
+        )
+
+        self.assertTrue(confirmation.evidence["used_fallback_volume_baseline"])
+        self.assertEqual(confirmation.evidence["volume_baseline_mode"], "rolling_ewma")
+        self.assertEqual(confirmation.evidence["tod_dow_rvol"], None)
 
     def test_minimum_reward_to_risk_handles_valid_and_invalid_levels(self):
         features = _import_features()
