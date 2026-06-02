@@ -1,7 +1,7 @@
 ﻿---
 type: process
 status: active
-updated: 2026-05-26
+updated: 2026-06-02
 tags:
   - domain/backtest
   - domain/agent
@@ -9,7 +9,7 @@ tags:
 
 # Proposal验证流程
 
-结论：proposal 是建议，不是配置；未验证、未人工确认前不得进入确定性热路径。
+结论：proposal 是建议，不是配置；未验证、未人工确认前不得进入确定性热路径。LR 收口后，Research Pipeline / Full Audit Gate 是所有策略调参进入 formal candidate 前的主路径。
 
 ## 流程
 
@@ -20,6 +20,31 @@ tags:
 5. 复用 P4.4 回测路径对比 base/proposed。
 6. 输出验证结果。
 7. 人工确认后，才可能生成正式配置候选。
+
+## Research Pipeline 主路径
+
+后续策略研究不再复制 PR11A-PR11H 临时脚本流，统一走：
+
+1. strategy adapter / registry / CLI。
+2. candidate schema / cache / lineage。
+3. artifact reader / index / research run registry。
+4. edge / tag / sizing diagnostics。
+5. combined candidate proposal。
+6. full-audit gate。
+7. robustness validation。
+8. final regression baseline。
+9. proposal-to-formal decision log。
+
+适用策略包括 `liquidity_reversal`、`trend_continuation`、`breakout_pullback`、`stopping_volume_retest` 以及后续 PA/VPA 策略。
+
+## Full Audit Gate 硬规则
+
+- performance metrics 只能来自 `row_type=closed_trade`。
+- `proposal_candidate`、`sizing_diagnostic`、`diagnostic_only`、`summary_row` 不得进入 net_R、PF、MFE、MAE、drawdown。
+- closed trade 必须具备 `trade_id`、`execution_id`、`candidate_id`、`event_id` 和可验证时间链路。
+- no-lookahead 必须可验证：confirmed bar、feature cutoff、structure confirmed time、signal time、entry time、exit time 必须满足顺序约束。
+- 指标必须能从 row-level artifact 重算，不能从 markdown summary 反推。
+- 旧 PR11C-PR11G 产物只作为历史参考；最终决策以 clean rebuild、full-audit、robustness、exposure restriction 和 final evidence 为准。
 
 ## 验证入口
 
@@ -101,9 +126,9 @@ PR 11G-Rebuild 后，LR robustness 前置输入必须以 `storage\backtest_cache
 
 PR 11H robustness 通过收益压力测试不等于可以直接进入 PR 12。若 Variant B 在 base / stress / harsh / extreme harsh 下仍为正，但出现 profile、asset、direction 过度集中，或同向 overlap / concurrent portfolio heat 明显偏高，应选择 Primary Decision C，进入 PR11H-fix 做 regime / exposure restriction。当前 clean PR11H 结果为：Variant B base closed=198、total_net_R=94.815、PF=8.57；extreme_harsh total_net_R=55.215、PF=3.18；walk-forward 5/5 为正；Monte Carlo ruin-like=0；但 profile C 占 190/198、max_concurrent_positions=22、same_direction_overlap_count=558、portfolio_heat_max=0.11，因此不得直接进入 PR12。
 
-PR11H-fix 必须先解释 profile concentration，再验证 exposure restriction。当前 clean PR11H-fix 结果显示：B/C fresh candidates 基本相当（B=2828，C=2824），不是 B profile 无机会；但 B formal approved 只有 13，C formal approved 为 404，集中主要来自 formal risk / quality gate 通过率差异，而不是 writer / join / execution mapping 丢失。Variant B unrestricted 为 closed=198、total_net_R=94.815、PF=8.57、max_concurrent_positions=22、same_direction_overlap_count=558、portfolio_heat_max=0.11；`portfolio_heat_cap_5pct` 后为 closed=183、total_net_R=85.070、PF=7.80、max_concurrent_positions=10、same_direction_overlap_count=303、portfolio_heat_max=0.05。该结果只能作为 PR12 候选输入，不代表已正式化 Session_HL、dynamic_time_cut 或 quality_aware_capped_sizing。
+PR11H-fix 必须先解释 profile concentration，再验证 exposure restriction。当前 clean PR11H-fix 结果显示：B/C fresh candidates 基本相当（B=2828，C=2824），不是 B profile 无机会；但 B formal approved 只有 13，C formal approved 为 404，集中主要来自 formal risk / quality gate 通过率差异，而不是 writer / join / execution mapping 丢失。Variant B unrestricted 为 closed=198、total_net_R=94.815、PF=8.57、max_concurrent_positions=22、same_direction_overlap_count=558、portfolio_heat_max=0.11；`portfolio_heat_cap_5pct` 后为 closed=183、total_net_R=85.070、PF=7.80、max_concurrent_positions=10、same_direction_overlap_count=303、portfolio_heat_max=0.05。该结果只能作为 PR12 候选输入；Session_HL、dynamic_time_cut 或 quality_aware_capped_sizing 不得脱离 Restricted Variant B 泛化为通用正式规则。
 
-PR12 正式化范围只包括 Restricted Variant B：Tier 1 + Positive Tier 2 + `portfolio_heat_cap=0.05`，正式适用范围为 C profile；B profile 保留 diagnostic-only。正式配置为 `configs/strategies/liquidity_reversal.yaml`，final baseline 位于 `storage/research_runs/liquidity_reversal/final/final_regression_baseline.json`。unrestricted Variant B、Full original family、Tier 3、rolling_range、PDH/PDL、EQH/EQL、runner、partial TP、structure target 和 unexecuted proposal rows 均不得进入正式主配置。
+PR12 正式化范围只包括 Restricted Variant B：Tier 1 + Positive Tier 2 + `portfolio_heat_cap=0.05`，正式适用范围为 C profile；B profile 保留 diagnostic-only。正式配置为 `configs/strategies/liquidity_reversal.yaml`，final baseline 位于 `storage/research_runs/liquidity_reversal/final/final_regression_baseline.json`。unrestricted Variant B、Full original family、Tier 3、rolling_range、PDH/PDL、EQH/EQL、runner、partial TP、structure target 和 unexecuted proposal rows 均不得进入正式主配置。该配置仍保持 `live_trading_enabled=false`，不得被描述为实盘策略。
 
 ## 禁止事项
 

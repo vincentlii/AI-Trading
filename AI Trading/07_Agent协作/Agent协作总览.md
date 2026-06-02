@@ -1,7 +1,7 @@
 ﻿---
 type: agent-system
 status: active
-updated: 2026-05-22
+updated: 2026-06-02
 tags:
   - domain/agent
   - agent/recovery
@@ -9,7 +9,7 @@ tags:
 
 # Agent协作总览
 
-结论：Agent 分为策划者、研究代理、执行代理、复盘代理和未来 Hermes Agent；所有 Agent 都不得越过风控和人工审批边界。
+结论：Agent 分为策划者、研究代理、执行代理、复盘代理和未来 Hermes Agent；所有 Agent 都不得越过风控、Full Audit Gate 和人工审批边界。
 
 ## 角色
 
@@ -34,7 +34,18 @@ tags:
 - Agent 不自动改正式配置。
 - Agent 不绕过 RiskEngine。
 - Agent 参数建议必须进入 proposal。
+- Agent 不得把 proposal / diagnostic / summary rows 当作收益表现。
+- Agent 不得把 formal research candidate 描述为 live trading strategy。
+- Agent 不得在未经 full-audit、robustness、exposure restriction 和人工确认前修改正式配置。
 - 执行代理必须知道自己不是唯一在代码库工作的代理。
+
+## Research Pipeline 协作规则
+
+- 后续策略研究优先使用统一 Research Pipeline，不复制 PR11A-PR11H 临时脚本流。
+- full-audit failed 时，不得继续推进 robustness 或 formalization。
+- performance metric 必须能追溯到 `row_type=closed_trade`，并具备 execution / candidate / event / timeseries lineage。
+- 旧 PR11C-PR11G LR 产物只可作为历史参考，不得作为最终决策依据。
+- trend_continuation、breakout_pullback、stopping_volume_retest 等新策略启动前，应先确认 adapter、artifact、audit 和 regression baseline 路径。
 
 ## 写入规则
 

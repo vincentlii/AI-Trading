@@ -16,6 +16,13 @@
 - RAG 与 MCP 准备：`AI Trading/09_RAG与MCP准备/`
 - 历史草稿与原始资料：`AI Trading/99_归档/`
 
+## 当前状态
+
+- 当前仍处于 P6 前置审查/补齐阶段，正式模拟盘和真实交易未启用。
+- LR 已完成 formal research candidate 收口；最终候选为 Restricted Variant B，`portfolio_heat_cap=0.05`，C profile formal scope，B profile diagnostic-only。
+- Research Pipeline / Full Audit Gate 已成为后续策略研究主路径。
+- 最终 LR evidence 位于 `docs/research/liquidity_reversal/final_evidence/`。
+
 ## 核心链路
 
 ```text
@@ -49,6 +56,12 @@ python -m venv .venv
 git diff --check
 ```
 
+Research Pipeline audit：
+
+```powershell
+python -m research_pipeline.cli.research full-audit --strategy liquidity_reversal --artifact-dir storage\backtest_cache\pr11g_clean_rebuild\lr_combined_fix --output-dir storage\research_runs\liquidity_reversal\final\post_commit_full_audit
+```
+
 数据质量检查：
 
 ```powershell
@@ -63,7 +76,7 @@ git diff --check
 
 ## 风险声明
 
-本项目是量化研究、回测、模拟盘与复盘工具，不构成投资建议。真实交易接口默认关闭；Agent 只能做解释、复盘、红队审查和 proposal，不得绕过风控或触发真实交易。
+本项目是量化研究、回测、模拟盘与复盘工具，不构成投资建议。真实交易接口默认关闭；Agent 只能做解释、复盘、红队审查和 proposal，不得绕过风控、Full Audit Gate 或触发真实交易。
 
 ## 更新规则
 

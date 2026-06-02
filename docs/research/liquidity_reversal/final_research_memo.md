@@ -33,8 +33,8 @@ Restricted Variant B 比 unrestricted 牺牲部分 total_R，但显著降低 por
 |---|---|
 | Attempt | attempt_4 displacement 是主 setup；attempt_3 CHOCH/MSS 是覆盖型补充 |
 | Structure | Session_HL 进入 Restricted Variant B；PDH/PDL 与 EQH/EQL 保留 diagnostic |
-| Exit | dynamic_time_cut 只在 Restricted Variant B 内正式化；fixed_2R_time_cut 保留 baseline |
-| Sizing | quality-aware capped sizing 只在 Restricted Variant B 内正式化；B profile 不进入主配置 |
+| Exit | dynamic_time_cut 只作为 Restricted Variant B 内的已验证组件；fixed_2R_time_cut 保留 baseline，不做通用出场替换 |
+| Sizing | quality-aware capped sizing 只作为 Restricted Variant B 内的已验证风险层；不替代 RiskEngine，B profile 不进入主配置 |
 | Combined | Tier 1 + positive Tier 2 有组合价值，但必须加 `portfolio_heat_cap=0.05` |
 
 ## Profile 结论
@@ -60,6 +60,7 @@ B profile 不是没有候选：B fresh candidates 为 2828，C 为 2824。集中
 - 不得把 proposal / diagnostic / summary rows 纳入 performance。
 - performance 必须来自 `row_type=closed_trade`。
 - `portfolio_heat_cap=0.05` 是正式候选的一部分，不是可选优化。
+- Restricted Variant B 不代表放宽 fee、funding、margin、notional cap、stop、target 或通用正式出场边界。
 
 ## 复现
 
