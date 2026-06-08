@@ -2,7 +2,7 @@
 type: strategy-family
 strategy_family: compression_expansion_breakout
 status: diagnostic_candidate
-updated: 2026-06-06
+updated: 2026-06-08
 tags:
   - strategy/pa-vpa
   - strategy/research-only
@@ -176,3 +176,6 @@ TC family cleanup 后，`compression_expansion` / CE native / CE shallow 不再�
 - 当前 TC family best diagnostic snapshot 是 `bp_shallow_cost_aware_admission_v3`，不是 CE。
 - CE artifacts 不进入 formal candidate、不进入 P6、不进入正式 proposal 队列。
 - 后续优先方向为 simple support/resistance fixed RR baseline 对照，不是继续 CE 参数微调。
+## 2026-06-08 Codex Skills 同步口径
+
+`compression_expansion` 后续若重启，只能通过 Research Pipeline 和 Strategy Expansion Diagnostics 流程进入 proposal-only 研究。当前不再继续 CE native / CE shallow 局部优化；本页结论由 `trading-system-obsidian-sync` 同步维护，不能把 CE diagnostic 结果写成 formal candidate 或 P6 证据。

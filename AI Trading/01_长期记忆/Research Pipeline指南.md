@@ -297,3 +297,17 @@ Research Pipeline 是通用研究工厂，不是 LR 专用脚本集合。新策�
 - 必须保留 best snapshot、closed_trade rows、Full Audit、no-lookahead、metric recompute、regression baseline、manifest/fingerprint 和 shared lifecycle core。
 - 不得删除 LR final evidence、Research Pipeline 基础设施、shared lifecycle engine 或 Obsidian 正式页面。
 - 后续如重新研究 TC family，必须从保存的 diagnostic snapshot 和报告恢复上下文，不得把该 snapshot 当作 formal candidate 或 P6 准入证据。
+
+## 2026-06-08 Codex Skills 化
+
+Research Pipeline 已沉淀为项目专属 Codex skills 的核心流程来源。
+
+已创建的稳定流程：
+
+- `trading-system-research-pipeline-runner`
+- `trading-system-full-audit-gate-checker`
+- `trading-system-strategy-expansion-diagnostics`
+- `trading-system-backtest-report-analyst`
+- `trading-system-obsidian-sync`
+
+这些 skills 只描述稳定流程、输入、输出、禁止事项和验证要求，不固化仍在探索中的策略 alpha。所有研究默认 proposal-only；任何 formalization、P6、live trading 或正式配置修改仍需要单独人工批准和 Full Audit Gate。

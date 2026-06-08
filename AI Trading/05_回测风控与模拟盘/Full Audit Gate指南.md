@@ -30,3 +30,15 @@ Full Audit Gate 是所有 formal research candidate 的通用准入标准。它�
 - 时间链缺字段或顺序失败。
 - metric recompute 与报告不一致。
 - final evidence、robustness 或 regression baseline 无法追溯。
+
+## Codex Skill 入口
+
+Full Audit Gate 已作为项目通用流程沉淀为 `trading-system-full-audit-gate-checker`。
+
+使用边界：
+
+- 只验证，不优化策略。
+- 只读取 `row_type=closed_trade` 作为绩效来源。
+- proposal / diagnostic / summary rows 必须隔离。
+- 无 closed_trade 时只能报告不可验证，不能绕过 gate。
+- LR final evidence 只读保护，不得用后续研究覆盖或重解释。

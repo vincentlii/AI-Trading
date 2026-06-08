@@ -2,7 +2,7 @@
 type: strategy-family
 strategy_family: breakout_pullback_continuation
 status: diagnostic_candidate_subtype_refactor
-updated: 2026-06-06
+updated: 2026-06-08
 tags:
   - strategy/pa-vpa
   - strategy/implemented
@@ -224,3 +224,6 @@ TC family best diagnostic snapshot 已固化：
 - next_research: `simple_support_resistance_fixed_rr_baseline_pending_user_spec`
 
 清理口径：保留 v3 最佳复现链路、final reports、audit、metric recompute、regression baseline；删除 partial capture、momentum failure、regime adaptive exit、regime cost gate 等失败/重复 replay variant 目录。LR final evidence 未触碰。
+## 2026-06-08 Codex Skills 同步口径
+
+`breakout_pullback` 当前仅保留 `bp_shallow_cost_aware_admission_v3` diagnostic snapshot。后续若做 simple baseline 对照或重新研究 BP shallow，必须走 `trading-system-research-pipeline-runner`、`trading-system-full-audit-gate-checker` 和 `trading-system-backtest-report-analyst`；不得继续局部调参、手工筛 regime 或把 diagnostic snapshot 写成 formal candidate。
