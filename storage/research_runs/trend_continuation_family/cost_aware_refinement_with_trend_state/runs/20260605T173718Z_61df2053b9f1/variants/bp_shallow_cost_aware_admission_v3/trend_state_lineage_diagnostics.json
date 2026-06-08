@@ -1,0 +1,24 @@
+{
+  "candidate_has_trend_state": true,
+  "candidate_rows": 1058,
+  "candidate_trend_state_coverage": 1.0,
+  "candidate_unknown_share": 0.0,
+  "closed_trade_has_trend_state": true,
+  "closed_trade_rows": 1248,
+  "closed_trade_trend_state_coverage": 1.0,
+  "closed_trade_trend_state_split": {
+    "COMPRESSION_PENDING_BREAKOUT": 396,
+    "MEAN_REVERTING_TRANSITION": 777,
+    "RANGE": 66,
+    "TREND": 9
+  },
+  "closed_trade_unknown_share": 0.0,
+  "context_has_trend_state": true,
+  "context_trend_state_coverage": 1.0,
+  "event_has_trend_state": true,
+  "event_trend_state_coverage": 1.0,
+  "filter_rows": 1058,
+  "filter_trend_state_coverage": 1.0,
+  "filter_unknown_share": 0.0,
+  "missing_reason": {}
+}

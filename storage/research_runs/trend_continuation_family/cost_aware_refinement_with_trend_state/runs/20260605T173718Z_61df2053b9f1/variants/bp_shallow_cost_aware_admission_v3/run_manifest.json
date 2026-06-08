@@ -1,0 +1,145 @@
+{
+  "adapter_version": "tc_family_cost_aware_refinement_with_trend_state.v1+trend_continuation_core.v2",
+  "artifact_contract": {
+    "excluded_performance_row_types": [
+      "proposal_candidate",
+      "sizing_diagnostic",
+      "diagnostic_only",
+      "summary_row"
+    ],
+    "performance_row_type": "closed_trade",
+    "required_inputs": [
+      "candidate_rows",
+      "filter_results",
+      "execution_rows",
+      "run_manifest"
+    ],
+    "required_outputs": [
+      "closed_trade_rows",
+      "diagnostic_rows",
+      "summary_rows",
+      "robustness_rows",
+      "regression_baseline",
+      "audit_report"
+    ]
+  },
+  "artifact_paths": {
+    "candidate_rows": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\candidate_rows.jsonl",
+    "closed_trade_rows": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\closed_trade_rows.jsonl",
+    "diagnostic_rows": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\diagnostic_rows.jsonl",
+    "execution_rows": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\closed_trade_rows.jsonl",
+    "filter_results": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\filter_results_research.jsonl",
+    "regression_baseline": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\regression_baseline.json",
+    "review_log_rows": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\review_log_rows.jsonl",
+    "robustness_rows": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\robustness_rows.jsonl",
+    "summary_rows": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\summary_rows.jsonl",
+    "trend_state_lineage_diagnostics": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\trend_state_lineage_diagnostics.json"
+  },
+  "audit_profile": {
+    "excluded_performance_row_types": [
+      "proposal_candidate",
+      "sizing_diagnostic",
+      "diagnostic_only",
+      "summary_row"
+    ],
+    "performance_row_type": "closed_trade",
+    "required_lineage_fields": [
+      "trade_id",
+      "execution_id",
+      "candidate_id",
+      "event_id",
+      "lifecycle_event_id",
+      "level_id",
+      "breakout_event_id",
+      "breakout_pullback_event_id"
+    ],
+    "required_time_fields": [
+      "feature_cutoff_time",
+      "zone_confirmed_time",
+      "breakout_time",
+      "acceptance_end_time",
+      "pullback_start_time",
+      "pullback_end_time",
+      "relaunch_time",
+      "signal_time",
+      "entry_time",
+      "exit_time"
+    ],
+    "requires_exposure_restriction": true,
+    "requires_metric_recompute": true,
+    "requires_no_lookahead": true,
+    "requires_regression_baseline": true,
+    "requires_robustness": true,
+    "time_order_checks": [
+      [
+        "feature_cutoff_time_lte_signal_time",
+        "feature_cutoff_time",
+        "signal_time"
+      ],
+      [
+        "zone_confirmed_time_lte_breakout_time",
+        "zone_confirmed_time",
+        "breakout_time"
+      ],
+      [
+        "breakout_time_lte_acceptance_end_time",
+        "breakout_time",
+        "acceptance_end_time"
+      ],
+      [
+        "acceptance_end_time_lte_signal_time",
+        "acceptance_end_time",
+        "signal_time"
+      ],
+      [
+        "acceptance_end_time_lte_pullback_start_time",
+        "acceptance_end_time",
+        "pullback_start_time"
+      ],
+      [
+        "pullback_start_time_lte_pullback_end_time",
+        "pullback_start_time",
+        "pullback_end_time"
+      ],
+      [
+        "pullback_end_time_lte_relaunch_time",
+        "pullback_end_time",
+        "relaunch_time"
+      ],
+      [
+        "relaunch_time_lte_signal_time",
+        "relaunch_time",
+        "signal_time"
+      ],
+      [
+        "signal_time_lt_entry_time",
+        "signal_time",
+        "entry_time"
+      ],
+      [
+        "entry_time_lte_exit_time",
+        "entry_time",
+        "exit_time"
+      ]
+    ]
+  },
+  "baseline_ref": "storage\\research_runs\\trend_continuation_family\\cost_aware_exit_target\\runs\\20260605T161630Z_43f268f39cc0\\variants\\bp_shallow_cost_aware_admission_v2",
+  "config_snapshot": {
+    "config_fingerprint": "0799315c73f1281ffb556c85cada43814e1297966f7a56724a1ad691d2a6cc4f",
+    "config_version": "btc_eth_swap_proposal_v1",
+    "exit_policy": "proposal_cost_aware_admission_v3_entry_known_refinement",
+    "setup_filter": [
+      "breakout_pullback"
+    ],
+    "sizing_policy": "capped_risk_sizing_proposal_only",
+    "source_variant_id": "bp_shallow_cost_aware_admission_v2",
+    "trend_state_lineage_policy": "build_market_regime_entry_safe_v1",
+    "variant_id": "bp_shallow_cost_aware_admission_v3"
+  },
+  "dataset_window": "tc_family_cost_aware_refinement_with_trend_state_2026_06_06",
+  "formal_conclusion_enabled": false,
+  "notes": "TC family cost-aware refinement with trend-state lineage; proposal-only shadow replay.",
+  "proposal_only": true,
+  "run_id": "27aa768b9e3496258f384a31",
+  "strategy": "breakout_pullback"
+}

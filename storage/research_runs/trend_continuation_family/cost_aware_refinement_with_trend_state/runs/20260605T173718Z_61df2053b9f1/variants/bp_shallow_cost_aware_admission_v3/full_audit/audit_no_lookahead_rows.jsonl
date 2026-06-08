@@ -1,0 +1,13 @@
+{"blocking": false, "check_name": "feature_cutoff_time_lte_signal_time", "checked_rows": 1248, "details": "temporal ordering verified", "failed_rows": 0, "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "zone_confirmed_time_lte_breakout_time", "checked_rows": 1248, "details": "temporal ordering verified", "failed_rows": 0, "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "breakout_time_lte_acceptance_end_time", "checked_rows": 1248, "details": "temporal ordering verified", "failed_rows": 0, "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "acceptance_end_time_lte_signal_time", "checked_rows": 1248, "details": "temporal ordering verified", "failed_rows": 0, "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "acceptance_end_time_lte_pullback_start_time", "checked_rows": 1248, "details": "temporal ordering verified", "failed_rows": 0, "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "pullback_start_time_lte_pullback_end_time", "checked_rows": 1248, "details": "temporal ordering verified", "failed_rows": 0, "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "pullback_end_time_lte_relaunch_time", "checked_rows": 1248, "details": "temporal ordering verified", "failed_rows": 0, "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "relaunch_time_lte_signal_time", "checked_rows": 1248, "details": "temporal ordering verified", "failed_rows": 0, "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "signal_time_lt_entry_time", "checked_rows": 1248, "details": "temporal ordering verified", "failed_rows": 0, "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "entry_time_lte_exit_time", "checked_rows": 1248, "details": "temporal ordering verified", "failed_rows": 0, "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "bar_confirmed_true", "checked_rows": 1248, "details": "bar_confirmed available", "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "same_bar_ambiguity_pessimistic", "checked_rows": 1248, "details": "same_bar_ambiguous available", "passed": true, "unverifiable_rows": 0}
+{"blocking": false, "check_name": "no_lookahead_feature_usage", "checked_rows": 1248, "details": "no_lookahead_safe available", "passed": true, "unverifiable_rows": 0}

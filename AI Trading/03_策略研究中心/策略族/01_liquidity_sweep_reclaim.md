@@ -1,4 +1,4 @@
-﻿---
+---
 type: strategy-family
 strategy_family: liquidity_sweep_reclaim
 status: formal_research_candidate

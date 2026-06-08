@@ -1,0 +1,5 @@
+{"affected_rows": 0, "blocking": false, "check_name": "performance_metrics_from_closed_trade_only", "details": "closed_trade_rows must contain only closed_trade rows", "passed": true}
+{"affected_rows": 0, "blocking": false, "check_name": "proposal_diagnostic_summary_rows_excluded", "details": "non-closed artifacts are not eligible for performance", "passed": true}
+{"affected_rows": 0, "blocking": false, "check_name": "summary_rows_do_not_contain_trade_pnl", "details": "summary rows can report aggregates but not row-level net_R", "passed": true}
+{"affected_rows": 0, "blocking": false, "check_name": "regression_baseline_present", "details": "regression baseline artifact is required", "passed": true}
+{"affected_rows": 0, "blocking": false, "check_name": "robustness_exposure_restriction_present", "details": "missing robustness types: []", "passed": true}
