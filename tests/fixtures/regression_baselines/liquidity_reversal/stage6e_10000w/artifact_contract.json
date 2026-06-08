@@ -1,0 +1,6 @@
+{
+  "artifact_contract_version": "fixture.v1",
+  "strategy": "liquidity_reversal",
+  "stage": "stage6e_aggregation",
+  "notes": "Small artifact used to keep artifact-index tests independent of historical storage cache."
+}

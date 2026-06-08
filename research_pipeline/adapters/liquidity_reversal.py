@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from research_pipeline.adapters.base import StrategyAdapter
+from research_pipeline.adapters.base import ArtifactContract, AuditProfile, StrategyAdapter
 
 
 class LiquidityReversalAdapter(StrategyAdapter):
@@ -45,6 +45,55 @@ class LiquidityReversalAdapter(StrategyAdapter):
             "primary_combo": self.primary_combo,
             "sizing_models": list(self.sizing_models),
             "required_artifact_types": list(self.required_artifact_types),
+            "artifact_contract": self.artifact_contract().as_dict(),
+            "audit_profile": self.audit_profile().as_dict(),
+            "candidate_schema": self.candidate_schema(),
+            "lineage_fields": self.lineage_fields(),
+        }
+
+    def artifact_contract(self) -> ArtifactContract:
+        return ArtifactContract(
+            required_inputs=[
+                "filter_results",
+                "execution_results",
+                "sizing_candidates",
+                "artifact_index",
+                "research_run_registry",
+            ],
+            required_outputs=[
+                "closed_trade_rows",
+                "proposal_candidate_rows",
+                "diagnostic_rows",
+                "summary_rows",
+                "robustness_input_rows",
+                "regression_baseline",
+            ],
+        )
+
+    def audit_profile(self) -> AuditProfile:
+        return AuditProfile(
+            required_lineage_fields=[
+                "trade_id",
+                "execution_id",
+                "candidate_id",
+                "event_id",
+                "event_key",
+            ],
+        )
+
+    def candidate_schema(self) -> dict[str, str]:
+        return {
+            "candidate_id": "string",
+            "event_id": "string",
+            "event_key": "string",
+            "asset": "string",
+            "profile": "string",
+            "direction": "string",
+            "row_type": "string",
+            "sweep_time": "timestamp",
+            "reclaim_time": "timestamp",
+            "signal_time": "timestamp",
+            "entry_time": "timestamp",
         }
 
     def baseline_metric_keys(self) -> list[str]:

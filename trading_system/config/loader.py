@@ -14,7 +14,7 @@ from trading_system.backtest.scanner import BacktestScanConfig, BacktestScanTarg
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ALLOWED_PROFILES = {"A", "B", "C"}
-TREND_PRICE_VOLUME_SETUPS = {"trend_continuation", "liquidity_reversal"}
+TREND_PRICE_VOLUME_SETUPS = {"trend_continuation", "liquidity_reversal", "compression_expansion", "breakout_pullback"}
 BTC_ETH_SYMBOLS = {"BTC/USDT", "ETH/USDT"}
 
 

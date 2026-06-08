@@ -9,9 +9,7 @@ from research_pipeline.cli.research import main
 from research_pipeline.runners.lr_expansion_diagnostics import run_lr_expansion_diagnostics
 
 
-FILTER_RESULTS = Path("storage/backtest_cache/minimal_lr_v0_filter_stage6e/10000w/minimal_lr_v0_filter_results.jsonl")
-EXECUTION_RESULTS = Path("storage/backtest_cache/minimal_lr_v0_filter_stage6e/10000w/minimal_lr_v0_execution_results.jsonl")
-SIZING_CANDIDATES = Path("storage/backtest_cache/stage6e_sizing/10000w/stage6c_sizing_candidates.csv")
+from research_pipeline.tests.fixture_paths import FILTER_RESULTS, EXECUTION_RESULTS, SIZING_CANDIDATES
 
 
 class LRExpansionDiagnosticsTest(unittest.TestCase):

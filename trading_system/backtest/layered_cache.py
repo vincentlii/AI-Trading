@@ -56,7 +56,13 @@ def context_config_hash(preset: BacktestPresetConfig) -> str:
     )
 
 
-def candidate_generation_config_hash(preset: BacktestPresetConfig) -> str:
+def candidate_generation_config_hash(
+    preset: BacktestPresetConfig,
+    setup_filter: Sequence[str] | None = None,
+    *,
+    setup_semantic_version: str = "",
+) -> str:
+    semantic_version = setup_semantic_version or _setup_semantic_version(setup_filter)
     return stable_hash(
         {
             "strategy": {
@@ -65,8 +71,20 @@ def candidate_generation_config_hash(preset: BacktestPresetConfig) -> str:
                 "enabled_setups": preset.strategy.enabled_setups,
             },
             "profiles": preset.scan.profile_keys,
+            "setup_filter": tuple(setup_filter or ()),
+            "setup_semantic_version": semantic_version,
         }
     )
+
+
+def _setup_semantic_version(setup_filter: Sequence[str] | None) -> str:
+    versions = {
+        "liquidity_reversal": "liquidity_reversal.current",
+        "trend_continuation": "trend_continuation.legacy_v1",
+        "compression_expansion": "compression_expansion.semantic_v2",
+        "breakout_pullback": "trend_continuation_core.v2",
+    }
+    return "|".join(versions.get(str(setup), f"{setup}.unknown") for setup in tuple(setup_filter or ()))
 
 
 def filter_config_hash(preset: BacktestPresetConfig) -> str:

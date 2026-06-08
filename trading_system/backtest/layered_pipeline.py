@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+from bisect import bisect_right
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
 from time import perf_counter
@@ -18,6 +21,7 @@ from trading_system.backtest.layered_cache import (
     data_hash_from_counts,
     execution_config_hash,
     filter_config_hash,
+    read_json,
     read_jsonl,
     stable_hash,
     write_csv,
@@ -73,6 +77,8 @@ def run_layered_proposal(
     force_candidates: bool = False,
     force_filter: bool = False,
     force_execution: bool = False,
+    setup_filter: Sequence[str] | None = None,
+    progress_path: str | Path | None = None,
 ) -> LayeredProposalResult:
     if mode not in LAYERED_MODES:
         raise ValueError(f"unsupported layered mode: {mode}")
@@ -86,6 +92,8 @@ def run_layered_proposal(
         max_entry_windows=max_entry_windows,
         force_context=force_context,
         force_candidates=force_candidates,
+        setup_filter=setup_filter,
+        progress_path=Path(progress_path) if progress_path is not None else None,
     )
 
     filter_rows: tuple[dict[str, object], ...] = ()
@@ -103,6 +111,13 @@ def run_layered_proposal(
         )
         funnel_rows = _funnel_rows(raw_rows, filter_rows)
         write_csv(paths.funnel_summary_path, funnel_rows, preferred_fields=_FUNNEL_FIELDS)
+        _write_stage_progress(
+            progress_path,
+            stage="filter_complete",
+            context_rows=len(context_rows),
+            raw_candidates=len(raw_rows),
+            filter_rows=len(filter_rows),
+        )
     else:
         write_csv(paths.funnel_summary_path, (), preferred_fields=_FUNNEL_FIELDS)
 
@@ -117,6 +132,14 @@ def run_layered_proposal(
             filter_rows=filter_rows,
             cost_tiers=tuple(cost_tiers),
             force_execution=force_execution,
+        )
+        _write_stage_progress(
+            progress_path,
+            stage="execution_complete",
+            context_rows=len(context_rows),
+            raw_candidates=len(raw_rows),
+            filter_rows=len(filter_rows),
+            execution_rows=len(execution_rows),
         )
     else:
         write_jsonl(paths.execution_results_path, ())
@@ -139,6 +162,7 @@ def run_layered_proposal(
         execution_rows=execution_rows,
         max_entry_windows=max_entry_windows,
         cost_tiers=tuple(cost_tiers),
+        setup_filter=setup_filter,
         elapsed_seconds=perf_counter() - started,
     )
     write_json(paths.manifest_path, manifest)
@@ -151,6 +175,15 @@ def run_layered_proposal(
         cache_manifest=manifest,
     )
     write_diagnostics_report(paths.diagnostics_report_path, report)
+    _write_stage_progress(
+        progress_path,
+        stage="layered_complete",
+        context_rows=len(context_rows),
+        raw_candidates=len(raw_rows),
+        filter_rows=len(filter_rows),
+        execution_rows=len(execution_rows),
+        elapsed_seconds=manifest.get("elapsed_seconds"),
+    )
     return LayeredProposalResult(
         mode=mode,
         scanned_windows=len(context_rows),
@@ -174,6 +207,28 @@ def run_layered_proposal(
     )
 
 
+def _write_stage_progress(progress_path: str | Path | None, **payload: object) -> None:
+    if progress_path is None:
+        return
+    path = Path(progress_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current = {}
+    if path.exists():
+        try:
+            current = read_json(path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            current = {}
+    stages = list(current.get("stages", [])) if isinstance(current.get("stages"), list) else []
+    row = {
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        **payload,
+    }
+    stages.append(row)
+    current.update(row)
+    current["stages"] = stages
+    write_json(path, current)
+
+
 def _ensure_candidates(
     *,
     repository,
@@ -182,30 +237,66 @@ def _ensure_candidates(
     max_entry_windows: int | None,
     force_context: bool,
     force_candidates: bool,
+    setup_filter: Sequence[str] | None,
+    progress_path: Path | None,
 ) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, object], ...], tuple[dict[str, object], ...], str, str]:
     if paths.context_path.exists() and not force_context:
         context_rows = read_jsonl(paths.context_path)
         context_status = "reused"
     else:
-        context_rows, coverage_rows = _build_context_rows(repository, preset=preset, max_entry_windows=max_entry_windows)
+        context_rows, coverage_rows = _build_context_rows(
+            repository,
+            preset=preset,
+            max_entry_windows=max_entry_windows,
+            setup_filter=setup_filter,
+        )
         write_jsonl(paths.context_path, context_rows)
         context_status = "forced_rebuild" if force_context else "created"
+    _write_stage_progress(
+        progress_path,
+        stage="context_complete",
+        context_rows=len(context_rows),
+        raw_candidates=None,
+    )
     if "coverage_rows" not in locals():
         coverage_rows = _coverage_from_context(context_rows)
 
-    if paths.raw_candidates_path.exists() and not force_candidates and not force_context:
+    raw_cache_reusable = _raw_cache_reusable(
+        preset=preset,
+        paths=paths,
+        setup_filter=setup_filter,
+    )
+    if paths.raw_candidates_path.exists() and not force_candidates and not force_context and raw_cache_reusable:
         raw_rows = read_jsonl(paths.raw_candidates_path)
         raw_status = "reused"
     else:
-        raw_rows = _build_raw_candidates(repository, preset=preset, context_rows=context_rows)
+        raw_rows = _build_raw_candidates(
+            repository,
+            preset=preset,
+            context_rows=context_rows,
+            setup_filter=setup_filter,
+        )
         write_jsonl(paths.raw_candidates_path, raw_rows)
         raw_status = "forced_rebuild" if force_candidates or force_context else "created"
+    _write_stage_progress(
+        progress_path,
+        stage="raw_candidates_complete",
+        context_rows=len(context_rows),
+        raw_candidates=len(raw_rows),
+    )
     return context_rows, raw_rows, tuple(coverage_rows), context_status, raw_status
 
 
-def _build_context_rows(repository, *, preset: BacktestPresetConfig, max_entry_windows: int | None) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, object], ...]]:
+def _build_context_rows(
+    repository,
+    *,
+    preset: BacktestPresetConfig,
+    max_entry_windows: int | None,
+    setup_filter: Sequence[str] | None,
+) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, object], ...]]:
     rows: list[dict[str, object]] = []
     coverage: list[dict[str, object]] = []
+    fast_context_only = tuple(setup_filter or ()) in {("trend_continuation",), ("compression_expansion",), ("breakout_pullback",)}
     for target in preset.to_scan_config().targets:
         for profile_key in preset.scan.profile_keys:
             profile = get_profile(profile_key)
@@ -213,6 +304,10 @@ def _build_context_rows(repository, *, preset: BacktestPresetConfig, max_entry_w
                 profile.entry_timeframe: _load_timeframe(repository, target, profile.entry_timeframe, preset),
                 profile.structure_timeframe: _load_timeframe(repository, target, profile.structure_timeframe, preset),
                 profile.trend_timeframe: _load_timeframe(repository, target, profile.trend_timeframe, preset),
+            }
+            candle_timestamps = {
+                timeframe: _candle_timestamps(data)
+                for timeframe, data in candles.items()
             }
             for timeframe, data in candles.items():
                 coverage.append(
@@ -236,12 +331,28 @@ def _build_context_rows(repository, *, preset: BacktestPresetConfig, max_entry_w
             for index in range(start_index, max(0, len(entry) - 1)):
                 latest = entry[index]
                 timestamp_ms = int(getattr(latest, "timestamp_ms"))
-                structure = _candles_until(candles[profile.structure_timeframe], timestamp_ms)
-                trend = _candles_until(candles[profile.trend_timeframe], timestamp_ms)
+                structure = _candles_until_cached(
+                    candles[profile.structure_timeframe],
+                    candle_timestamps[profile.structure_timeframe],
+                    timestamp_ms,
+                )
+                trend = _candles_until_cached(
+                    candles[profile.trend_timeframe],
+                    candle_timestamps[profile.trend_timeframe],
+                    timestamp_ms,
+                )
                 if not structure or not trend:
                     continue
-                regime = build_market_regime(trend)
-                volume = confirm_volume_price(entry[: index + 1], "long", context_features=_context_features(target, profile.key, preset)).evidence
+                regime = None if fast_context_only else build_market_regime(trend)
+                volume = (
+                    {}
+                    if fast_context_only
+                    else confirm_volume_price(
+                        entry[: index + 1],
+                        "long",
+                        context_features=_context_features(target, profile.key, preset),
+                    ).evidence
+                )
                 rows.append(
                     {
                         "asset": target.canonical_symbol.split("/", 1)[0].upper(),
@@ -278,8 +389,18 @@ def _build_context_rows(repository, *, preset: BacktestPresetConfig, max_entry_w
     return tuple(rows), tuple(coverage)
 
 
-def _build_raw_candidates(repository, *, preset: BacktestPresetConfig, context_rows: Sequence[Mapping[str, object]]) -> tuple[dict[str, object], ...]:
+def _build_raw_candidates(
+    repository,
+    *,
+    preset: BacktestPresetConfig,
+    context_rows: Sequence[Mapping[str, object]],
+    setup_filter: Sequence[str] | None,
+) -> tuple[dict[str, object], ...]:
     by_id: dict[str, dict[str, object]] = {}
+    candle_cache: dict[tuple[str, str, str, str, str], tuple[object, ...]] = {}
+    timestamp_cache: dict[tuple[str, str, str, str, str], tuple[int, ...]] = {}
+    regime_cache: dict[tuple[str, str, str, int], object | None] = {}
+    trend_only = tuple(setup_filter or ()) in {("trend_continuation",), ("compression_expansion",), ("breakout_pullback",)}
     for row in context_rows:
         target = BacktestScanTarget(
             canonical_symbol=str(row["symbol"]),
@@ -289,12 +410,30 @@ def _build_raw_candidates(repository, *, preset: BacktestPresetConfig, context_r
         )
         profile = get_profile(str(row["profile"]))
         timestamp_ms = int(row["timestamp_ms"])
+        def cached_timeframe(timeframe: str) -> tuple[object, ...]:
+            key = (target.inst_id, target.venue, target.inst_type, timeframe, str(row["symbol"]))
+            if key not in candle_cache:
+                candle_cache[key] = _load_timeframe(repository, target, timeframe, preset)
+                timestamp_cache[key] = _candle_timestamps(candle_cache[key])
+            return candle_cache[key]
+
+        def cached_until(timeframe: str, max_bars: int | None = None) -> tuple[object, ...]:
+            key = (target.inst_id, target.venue, target.inst_type, timeframe, str(row["symbol"]))
+            candles_for_timeframe = cached_timeframe(timeframe)
+            return _candles_until_cached(candles_for_timeframe, timestamp_cache[key], timestamp_ms, max_bars=max_bars)
+
         candles = {
-            profile.entry_timeframe: _candles_until(_load_timeframe(repository, target, profile.entry_timeframe, preset), timestamp_ms),
-            profile.structure_timeframe: _candles_until(_load_timeframe(repository, target, profile.structure_timeframe, preset), timestamp_ms),
-            profile.trend_timeframe: _candles_until(_load_timeframe(repository, target, profile.trend_timeframe, preset), timestamp_ms),
+            profile.entry_timeframe: cached_until(profile.entry_timeframe, 96 if trend_only else None),
+            profile.structure_timeframe: cached_until(profile.structure_timeframe, 512 if trend_only else None),
+            profile.trend_timeframe: cached_until(profile.trend_timeframe, 260 if trend_only else None),
         }
         features = _context_features(target, profile.key, preset)
+        trend_candles = candles[profile.trend_timeframe]
+        trend_ts = int(getattr(trend_candles[-1], "timestamp_ms")) if trend_candles else 0
+        regime_key = (target.inst_id, target.inst_type, profile.key, trend_ts)
+        if regime_key not in regime_cache:
+            regime_cache[regime_key] = build_market_regime(trend_candles)
+        features["market_regime"] = regime_cache[regime_key]
         for candidate in generate_raw_candidates(
             symbol=target.canonical_symbol,
             venue=target.venue,
@@ -305,6 +444,7 @@ def _build_raw_candidates(repository, *, preset: BacktestPresetConfig, context_r
             entry_candles=candles[profile.entry_timeframe],
             trend_candles=candles[profile.trend_timeframe],
             context_features=features,
+            setup_filter=setup_filter,
         ):
             by_id.setdefault(candidate.candidate_id, candidate.to_row())
     return tuple(by_id[key] for key in sorted(by_id))
@@ -354,6 +494,12 @@ def _filter_candidate(candidate: Mapping[str, object], preset: BacktestPresetCon
             reject_stage, reject_reason = "reclaim_and_choch", "choch_required_missing"
     if not reject_reason and candidate["setup"] == "liquidity_reversal" and target_r < preset.risk.min_liquidity_reversal_target_r:
         reject_stage, reject_reason = "risk_filter", "target_r_too_low"
+    if not reject_reason and candidate["setup"] == "breakout_pullback":
+        structural_quality = str(candidate.get("structural_stop_quality") or "")
+        if structural_quality in {"structural_stop_too_near", "structural_stop_too_wide"}:
+            reject_stage, reject_reason = "structural_tradeability_filter", structural_quality
+        elif candidate.get("stop_is_structural") is False:
+            reject_stage, reject_reason = "structural_tradeability_filter", "non_structural_stop"
 
     intent = OrderIntent(
         strategy_name=preset.strategy.name,
@@ -367,6 +513,18 @@ def _filter_candidate(candidate: Mapping[str, object], preset: BacktestPresetCon
         target_price=target,
         point_value=preset.execution.point_value,
     )
+    estimated_cost_r = _estimated_cost_r(intent, preset)
+    target_space = abs(target - entry)
+    target_space_atr = None if atr <= 0 else target_space / atr
+    cost_adjusted_rr = target_r - estimated_cost_r
+    cost_per_r = estimated_cost_r
+    if not reject_reason and candidate["setup"] == "breakout_pullback":
+        if target_space_atr is not None and target_space_atr < float(params.get("bp_min_target_space_atr", 0.0)):
+            reject_stage, reject_reason = "cost_adjusted_quality_filter", "target_space_insufficient"
+        elif cost_adjusted_rr < float(params.get("bp_min_cost_adjusted_rr", 0.0)):
+            reject_stage, reject_reason = "cost_adjusted_quality_filter", "cost_adjusted_RR_too_low"
+        elif cost_per_r > float(params.get("bp_max_cost_per_r", 999.0)):
+            reject_stage, reject_reason = "cost_adjusted_quality_filter", "cost_per_R_too_high"
     risk_decision = RiskEngine(preset.to_risk_parameters()).evaluate(
         intent,
         AccountState(
@@ -395,10 +553,16 @@ def _filter_candidate(candidate: Mapping[str, object], preset: BacktestPresetCon
         if not reject_reason and contract.reject_reason:
             reject_stage, reject_reason = "contract_risk_filter", contract.reject_reason
 
-    formal_approved = risk_decision.approved_order is not None and not reject_reason
     shadow_approved_5 = _shadow_allowed(stop_atr, preset.risk.min_stop_atr_multiple, 5.0)
     shadow_approved_8 = _shadow_allowed(stop_atr, preset.risk.min_stop_atr_multiple, 8.0)
-    estimated_cost_r = _estimated_cost_r(intent, preset)
+    if not reject_reason and candidate["setup"] == "compression_expansion":
+        if target_space_atr is not None and target_space_atr < float(params.get("compression_min_target_space_atr", 0.0)):
+            reject_stage, reject_reason = "cost_adjusted_quality_filter", "target_space_atr_too_low"
+        elif cost_adjusted_rr < float(params.get("compression_min_cost_adjusted_rr", 0.0)):
+            reject_stage, reject_reason = "cost_adjusted_quality_filter", "cost_adjusted_rr_too_low"
+        elif cost_per_r > float(params.get("compression_max_cost_per_r", 999.0)):
+            reject_stage, reject_reason = "cost_adjusted_quality_filter", "cost_per_r_too_high"
+    formal_approved = risk_decision.approved_order is not None and not reject_reason
     base = dict(candidate)
     base.update(
         {
@@ -420,6 +584,11 @@ def _filter_candidate(candidate: Mapping[str, object], preset: BacktestPresetCon
             "reclaim_rvol_ideal_max": 1.2,
             "reclaim_rvol_acceptable_max": 1.6,
             "estimated_cost_r": estimated_cost_r,
+            "target_space": candidate.get("target_space", target_space),
+            "target_space_atr": candidate.get("target_space_atr", target_space_atr),
+            "gross_RR": candidate.get("gross_RR", target_r),
+            "cost_adjusted_RR": cost_adjusted_rr,
+            "cost_per_R": cost_per_r,
             "estimated_funding_r": 0.0 if preset.costs.funding == 0 else abs(preset.costs.funding) / max(stop_distance, 1e-12),
             "min_stop_atr_multiple": preset.risk.min_stop_atr_multiple,
             "max_stop_atr_multiple": preset.risk.max_stop_atr_multiple,
@@ -440,7 +609,13 @@ def _filter_candidate(candidate: Mapping[str, object], preset: BacktestPresetCon
         contract_payload = asdict(contract)
         contract_payload["contract_risk_reject_reason"] = contract_payload.pop("reject_reason")
         base.update(contract_payload)
+        base["position_size"] = approved_order.quantity if approved_order is not None else 0.0
+        base["portfolio_heat_after_entry"] = contract.portfolio_heat
     else:
+        shadow_quantity = 0.0 if stop_distance <= 0 else risk_decision.risk_amount / (stop_distance * preset.execution.point_value)
+        shadow_notional = abs(shadow_quantity * entry * preset.execution.point_value)
+        shadow_margin = shadow_notional / max(preset.risk.max_total_gross_leverage, 1e-12)
+        shadow_heat = 0.0 if preset.execution.initial_equity <= 0 else risk_decision.risk_amount / preset.execution.initial_equity
         base.update(
             {
                 "fee": 0.0,
@@ -448,15 +623,18 @@ def _filter_candidate(candidate: Mapping[str, object], preset: BacktestPresetCon
                 "slippage": 0.0,
                 "funding_rate": preset.costs.funding,
                 "funding_paid_or_received": 0.0,
-                "leverage": 0.0,
-                "margin_required": 0.0,
-                "notional": 0.0,
+                "leverage": 0.0 if preset.execution.initial_equity <= 0 else shadow_notional / preset.execution.initial_equity,
+                "margin_required": shadow_margin,
+                "notional": shadow_notional,
+                "position_size": shadow_quantity,
                 "liquidation_price": 0.0,
                 "liquidation_distance_pct": 0.0,
                 "maintenance_margin_ratio": 0.005,
-                "gross_exposure": 0.0,
-                "net_exposure": 0.0,
-                "portfolio_heat": 0.0,
+                "gross_exposure": shadow_notional,
+                "net_exposure": shadow_notional if intent.direction == "LONG" else -shadow_notional,
+                "portfolio_heat": shadow_heat,
+                "portfolio_heat_after_entry": shadow_heat,
+                "contract_risk_reject_reason": "",
             }
         )
     return base
@@ -521,14 +699,34 @@ def _input_from_filter_row(repository, row: Mapping[str, object], preset: Backte
         price_action_evidence=dict(row),
         volume_price_evidence=dict(row),
         risk_profile={},
-        explanation_payload={"strategy_family": "liquidity_sweep_reclaim" if row["setup"] == "liquidity_reversal" else "breakout_pullback_continuation"},
+        explanation_payload={"strategy_family": _strategy_family_for_setup(str(row["setup"]))},
     )
-    return BacktestSignalInput(signal=signal, execution_candles=execution_candles)
+    return BacktestSignalInput(
+        signal=signal,
+        execution_candles=execution_candles,
+        candidate_id=str(row.get("candidate_id", "")),
+        event_id=str(row.get("event_id") or row.get("sweep_event_id") or row.get("candidate_id", "")),
+        feature_cutoff_time=_as_int(row.get("feature_cutoff_time") or row.get("signal_timestamp_ms")),
+        structure_confirmed_time=_as_int(row.get("structure_confirmed_time") or row.get("structure_timestamp_ms")),
+        sweep_time=_as_int(row.get("sweep_time") or row.get("sweep_timestamp_ms")),
+        reclaim_time=_as_int(row.get("reclaim_time") or row.get("reclaim_timestamp_ms") or row.get("signal_timestamp_ms")),
+        signal_time=_as_int(row.get("signal_time") or row.get("signal_timestamp_ms")),
+        bar_confirmed=bool(row.get("bar_confirmed", True)),
+        no_lookahead_safe=bool(row.get("no_lookahead_safe", True)),
+    )
 
 
 def _execution_row(candidate: Mapping[str, object], fill, cost_tier: str) -> dict[str, object]:
     return {
         "candidate_id": candidate["candidate_id"],
+        "event_id": candidate.get("event_id") or candidate.get("sweep_event_id") or candidate["candidate_id"],
+        "trade_id": fill.trade_id,
+        "execution_id": fill.execution_id,
+        "row_type": "closed_trade",
+        "closed_trade": True,
+        "eligible_for_performance": True,
+        "eligible_for_robustness": True,
+        "invalid_for_robustness": False,
         "cost_tier": cost_tier,
         "asset": candidate["asset"],
         "symbol": candidate["symbol"],
@@ -536,13 +734,53 @@ def _execution_row(candidate: Mapping[str, object], fill, cost_tier: str) -> dic
         "setup": candidate["setup"],
         "direction": candidate["direction"],
         "formal_approved": candidate["formal_approved"],
+        "entry_time": fill.entry_timestamp_ms,
+        "exit_time": fill.exit_timestamp_ms,
+        "feature_cutoff_time": candidate.get("feature_cutoff_time") or candidate.get("signal_timestamp_ms"),
+        "structure_confirmed_time": candidate.get("structure_confirmed_time") or candidate.get("structure_timestamp_ms"),
+        "sweep_time": candidate.get("sweep_time") or candidate.get("sweep_timestamp_ms"),
+        "reclaim_time": candidate.get("reclaim_time") or candidate.get("reclaim_timestamp_ms") or candidate.get("signal_timestamp_ms"),
+        "signal_time": candidate.get("signal_time") or candidate.get("signal_timestamp_ms"),
+        "trend_confirmed_time": candidate.get("trend_confirmed_time"),
+        "breakout_time": candidate.get("breakout_time"),
+        "pullback_confirmed_time": candidate.get("pullback_confirmed_time"),
+        "compression_event_id": candidate.get("compression_event_id"),
+        "compression_start_time": candidate.get("compression_start_time"),
+        "compression_end_time": candidate.get("compression_end_time"),
+        "confirmation_time": candidate.get("confirmation_time"),
+        "trend_event_id": candidate.get("trend_event_id") or candidate.get("event_id") or candidate.get("candidate_id"),
+        "breakout_pullback_event_id": candidate.get("breakout_pullback_event_id")
+        or candidate.get("event_id")
+        or candidate.get("candidate_id"),
+        "core_engine_version": candidate.get("core_engine_version"),
+        "level_id": candidate.get("level_id"),
+        "breakout_event_id": candidate.get("breakout_event_id"),
+        "lifecycle_event_id": candidate.get("lifecycle_event_id"),
+        "zone_confirmed_time": candidate.get("zone_confirmed_time"),
+        "breakout_class": candidate.get("breakout_class"),
+        "pullback_health_class": candidate.get("pullback_health_class"),
+        "relaunch_type": candidate.get("relaunch_type"),
+        "relaunch_quality_class": candidate.get("relaunch_quality_class"),
+        "target_source": candidate.get("target_source"),
+        "target_quality_class": candidate.get("target_quality_class"),
+        "structural_stop_quality": candidate.get("structural_stop_quality"),
+        "bp_subtype": candidate.get("bp_subtype"),
+        "acceptance_end_time": candidate.get("acceptance_end_time"),
+        "pullback_start_time": candidate.get("pullback_start_time"),
+        "pullback_end_time": candidate.get("pullback_end_time"),
+        "relaunch_time": candidate.get("relaunch_time"),
+        "bar_confirmed": candidate.get("bar_confirmed", True),
+        "no_lookahead_safe": candidate.get("no_lookahead_safe", True),
         "net_pnl": fill.net_pnl,
         "gross_pnl": fill.gross_pnl,
+        "net_R": fill.r_multiple,
         "r_multiple": fill.r_multiple,
         "exit_reason": fill.exit_reason,
         "holding_bars": fill.holding_bars,
         "mae_r": fill.mae_r,
         "mfe_r": fill.mfe_r,
+        "mae_R": fill.mae_r,
+        "mfe_R": fill.mfe_r,
         "bars_to_mae": fill.bars_to_mae,
         "bars_to_mfe": fill.bars_to_mfe,
         "reached_1R": fill.reached_1r,
@@ -558,6 +796,19 @@ def _execution_row(candidate: Mapping[str, object], fill, cost_tier: str) -> dic
         "spread": fill.cost_estimate.spread,
         "slippage": fill.cost_estimate.expected_slippage,
         "funding_paid_or_received": fill.cost_estimate.funding,
+        "fee_cost": fill.cost_estimate.fees,
+        "slippage_cost": fill.cost_estimate.expected_slippage,
+        "funding_cost": fill.cost_estimate.funding,
+        "portfolio_heat": candidate.get("portfolio_heat", 0.0),
+        "margin_required": candidate.get("margin_required", 0.0),
+        "notional_to_equity_pct": candidate.get("notional_to_equity_pct", candidate.get("notional", 0.0)),
+        "utc_hour": _utc_hour(int(fill.entry_timestamp_ms or candidate.get("signal_timestamp_ms") or 0)),
+        "trend_state": candidate.get("trend_state", ""),
+        "trend_aligned": candidate.get("trend_direction") in {"", candidate.get("direction")},
+        "stop_atr": candidate.get("stop_atr_multiple"),
+        "sweep_rvol": candidate.get("reclaim_rvol") or candidate.get("rolling_rvol") or candidate.get("tod_dow_rvol"),
+        "time_cut_exit": fill.exit_reason == "time_cut_exit",
+        "loss_time_cut": fill.exit_reason == "time_cut_exit" and fill.r_multiple < 0,
         "liquidation_event": False,
         "margin_call_event": False,
     }
@@ -705,11 +956,17 @@ def _manifest(
     execution_rows: Sequence[Mapping[str, object]],
     max_entry_windows: int | None,
     cost_tiers: Sequence[str],
+    setup_filter: Sequence[str] | None,
     elapsed_seconds: float,
 ) -> dict[str, object]:
     data_hash = data_hash_from_counts(coverage_rows)
     context_hash = stable_hash({"data_hash": data_hash, "context_config_hash": context_config_hash(preset)})
-    raw_hash = stable_hash({"context_cache_hash": context_hash, "candidate_generation_config_hash": candidate_generation_config_hash(preset)})
+    raw_hash = stable_hash(
+        {
+            "context_cache_hash": context_hash,
+            "candidate_generation_config_hash": candidate_generation_config_hash(preset, setup_filter),
+        }
+    )
     filter_hash = stable_hash({"raw_candidate_cache_hash": raw_hash, "filter_config_hash": filter_config_hash(preset)})
     execution_hash = stable_hash({"filter_result_hash": filter_hash, "execution_config_hash": execution_config_hash(preset, cost_tiers)})
     return {
@@ -717,6 +974,7 @@ def _manifest(
         "data_hash": data_hash,
         "context_cache_hash": context_hash,
         "raw_candidate_cache_hash": raw_hash,
+        "candidate_generation_config_hash": candidate_generation_config_hash(preset, setup_filter),
         "filter_result_hash": filter_hash,
         "execution_result_hash": execution_hash,
         "context_cache_status": context_status,
@@ -725,6 +983,8 @@ def _manifest(
         "execution_cache_status": execution_status,
         "max_entry_windows": max_entry_windows,
         "cost_tiers": tuple(cost_tiers),
+        "setup_filter": tuple(setup_filter or ()),
+        "raw_history_limits": _raw_history_limits(setup_filter),
         "context_rows": len(context_rows),
         "raw_candidates": len(raw_rows),
         "filter_rows": len(filter_rows),
@@ -759,8 +1019,61 @@ def _load_timeframe(repository, target: BacktestScanTarget, timeframe: str, pres
     return tuple(candle for candle in candles if bool(getattr(candle, "is_confirmed", False)))
 
 
+def _raw_history_limits(setup_filter: Sequence[str] | None) -> dict[str, int] | None:
+    if tuple(setup_filter or ()) not in {("trend_continuation",), ("compression_expansion",), ("breakout_pullback",)}:
+        return None
+    return {
+        "entry": 96,
+        "structure": 512,
+        "trend": 260,
+    }
+
+
+def _raw_cache_reusable(*, preset: BacktestPresetConfig, paths, setup_filter: Sequence[str] | None) -> bool:
+    if not paths.manifest_path.exists():
+        return setup_filter is None
+    try:
+        manifest = read_json(paths.manifest_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+    expected = tuple(setup_filter or ())
+    previous = tuple(manifest.get("setup_filter") or ())
+    if previous != expected:
+        return False
+    return bool(manifest.get("raw_candidate_cache_hash")) and manifest.get(
+        "candidate_generation_config_hash"
+    ) == candidate_generation_config_hash(preset, setup_filter)
+
+
+def _strategy_family_for_setup(setup: str) -> str:
+    if setup == "liquidity_reversal":
+        return "liquidity_sweep_reclaim"
+    if setup == "compression_expansion":
+        return "compression_expansion_breakout"
+    if setup == "breakout_pullback":
+        return "breakout_pullback_continuation"
+    return "breakout_pullback_continuation"
+
+
 def _candles_until(candles: Sequence[object], timestamp_ms: int) -> tuple[object, ...]:
     return tuple(candle for candle in candles if int(getattr(candle, "timestamp_ms")) <= timestamp_ms)
+
+
+def _candles_until_cached(
+    candles: Sequence[object],
+    timestamps: Sequence[int],
+    timestamp_ms: int,
+    *,
+    max_bars: int | None = None,
+) -> tuple[object, ...]:
+    end = bisect_right(timestamps, timestamp_ms)
+    if max_bars is not None and max_bars > 0:
+        return tuple(candles[max(0, end - max_bars) : end])
+    return tuple(candles[:end])
+
+
+def _candle_timestamps(candles: Sequence[object]) -> tuple[int, ...]:
+    return tuple(int(getattr(candle, "timestamp_ms")) for candle in candles)
 
 
 def _context_features(target: BacktestScanTarget, profile_key: str, preset: BacktestPresetConfig) -> dict[str, object]:
@@ -884,6 +1197,15 @@ def _as_float(value: object) -> float | None:
         return None
     try:
         return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_int(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(float(value))
     except (TypeError, ValueError):
         return None
 

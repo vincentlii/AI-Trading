@@ -259,6 +259,8 @@ def infer_strategy_family(signal: StrategySignal) -> str:
     fallback = {
         "liquidity_reversal": "liquidity_sweep_reclaim",
         "trend_continuation": "breakout_pullback_continuation",
+        "compression_expansion": "compression_expansion_breakout",
+        "breakout_pullback": "breakout_pullback_continuation",
     }
     return fallback.get(signal.setup_type, signal.setup_type)
 

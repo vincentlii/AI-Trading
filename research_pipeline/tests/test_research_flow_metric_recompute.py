@@ -1,10 +1,8 @@
 import unittest
-from pathlib import Path
-
 from research_pipeline.runners.research_flow_audit import run_research_flow_audit
 
 
-ARTIFACT_DIR = Path("storage/backtest_cache/lr_combined_fix_pr11g")
+from research_pipeline.tests.fixture_paths import COMBINED_FIX_DIR as ARTIFACT_DIR
 
 
 class ResearchFlowMetricRecomputeTest(unittest.TestCase):
@@ -23,9 +21,9 @@ class ResearchFlowMetricRecomputeTest(unittest.TestCase):
             if row["scope"] == "Variant B - Tier 1 + Positive Tier 2" and row["cost_tier"] == "base"
         }
 
-        self.assertEqual(checks["closed_trades"]["recomputed_value"], 198)
-        self.assertAlmostEqual(checks["total_net_R"]["recomputed_value"], 94.8149828755073)
-        self.assertAlmostEqual(checks["net_R_avg"]["recomputed_value"], 0.4788635498762995)
+        self.assertEqual(checks["closed_trades"]["recomputed_value"], 42)
+        self.assertAlmostEqual(checks["total_net_R"]["recomputed_value"], 23.25)
+        self.assertAlmostEqual(checks["net_R_avg"]["recomputed_value"], 23.25 / 42)
         self.assertTrue(all(row["passed"] for row in checks.values()))
 
 

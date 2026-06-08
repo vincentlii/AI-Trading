@@ -10,11 +10,7 @@ from pathlib import Path
 from research_pipeline.runners.lineage_repair import run_lineage_repair
 
 
-COMBINED_DIR = Path("storage/backtest_cache/lr_combined_fix_pr11g")
-FILTER_RESULTS = Path("storage/backtest_cache/minimal_lr_v0_filter_stage6e/10000w/minimal_lr_v0_filter_results.jsonl")
-EXECUTION_RESULTS = Path(
-    "storage/backtest_cache/minimal_lr_v0_filter_stage6e/10000w/minimal_lr_v0_execution_results.jsonl"
-)
+from research_pipeline.tests.fixture_paths import COMBINED_FIX_DIR as COMBINED_DIR, EXECUTION_RESULTS, FILTER_RESULTS
 
 
 class LineageRepairTests(unittest.TestCase):

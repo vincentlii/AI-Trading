@@ -13,6 +13,7 @@ SUPPORTED_SUFFIXES = {
     ".csv": "csv",
     ".jsonl": "jsonl",
     ".md": "markdown",
+    ".duckdb": "duckdb",
 }
 
 

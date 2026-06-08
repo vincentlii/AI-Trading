@@ -4,6 +4,26 @@ from research_pipeline.core.audit.metrics_recompute import comparison_rows, reco
 
 
 class AuditMetricRecomputeTest(unittest.TestCase):
+    def test_profit_factor_is_undefined_when_there_are_no_losses(self) -> None:
+        recomputed = recompute_metrics(
+            [
+                {"row_type": "closed_trade", "closed_trade": True, "net_R": 0.2},
+                {"row_type": "closed_trade", "closed_trade": True, "net_R": 0.4},
+            ]
+        )
+
+        self.assertIsNone(recomputed["profit_factor"])
+
+    def test_duplicate_event_count_uses_event_id_when_event_key_missing(self) -> None:
+        recomputed = recompute_metrics(
+            [
+                {"row_type": "closed_trade", "closed_trade": True, "cost_tier": "base", "event_id": "ce-1", "direction": "long", "net_R": 0.2},
+                {"row_type": "closed_trade", "closed_trade": True, "cost_tier": "base", "event_id": "ce-2", "direction": "long", "net_R": -0.1},
+            ]
+        )
+
+        self.assertEqual(recomputed["duplicate_event_count"], 0)
+
     def test_metric_mismatch_fails(self) -> None:
         recomputed = recompute_metrics(
             [

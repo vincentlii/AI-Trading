@@ -83,6 +83,38 @@ def _trend_continuation_structure() -> tuple[CandleStub, ...]:
     return tuple(_candle(index, row[0], row[1], row[2], row[3], volume=row[4]) for index, row in enumerate(rows))
 
 
+def _compression_expansion_structure() -> tuple[CandleStub, ...]:
+    rows = (
+        (100.00, 100.80, 99.80, 100.20, 110.0),
+        (100.20, 100.70, 99.90, 100.10, 105.0),
+        (100.10, 100.60, 99.95, 100.30, 96.0),
+        (100.30, 100.65, 100.00, 100.20, 92.0),
+        (100.20, 100.55, 99.95, 100.35, 88.0),
+        (100.35, 100.70, 100.05, 100.30, 84.0),
+        (100.30, 100.62, 100.02, 100.40, 80.0),
+        (100.40, 100.58, 100.04, 100.28, 78.0),
+        (100.28, 103.40, 100.20, 103.10, 210.0),
+        (103.10, 103.45, 101.85, 102.85, 135.0),
+    )
+    return tuple(_candle(index, row[0], row[1], row[2], row[3], volume=row[4]) for index, row in enumerate(rows))
+
+
+def _breakout_pullback_structure() -> tuple[CandleStub, ...]:
+    rows = (
+        (100.00, 100.90, 99.80, 100.20, 110.0),
+        (100.20, 101.00, 99.90, 100.30, 108.0),
+        (100.30, 101.10, 99.95, 100.50, 104.0),
+        (100.50, 101.05, 100.05, 100.40, 98.0),
+        (100.40, 101.00, 100.00, 100.35, 96.0),
+        (100.35, 101.15, 100.10, 100.80, 100.0),
+        (100.80, 104.50, 100.70, 104.10, 260.0),
+        (104.10, 104.60, 103.20, 103.80, 140.0),
+        (103.80, 104.00, 101.05, 101.55, 95.0),
+        (101.55, 103.90, 101.35, 103.70, 170.0),
+    )
+    return tuple(_candle(index, row[0], row[1], row[2], row[3], volume=row[4]) for index, row in enumerate(rows))
+
+
 def _liquidity_reversal_structure() -> tuple[CandleStub, ...]:
     rows = (
         (110.0, 111.0, 108.0, 109.0, 100.0),
@@ -216,6 +248,225 @@ class TrendPriceVolumeFeatureTests(unittest.TestCase):
         )
 
         self.assertIsNone(setup)
+
+    def test_compression_expansion_diagnostics_marks_valid_setup_candidate_ready(self):
+        features = _import_features()
+        non_mature_regime = features.MarketRegimeContext(
+            status="COMPRESSION_PENDING_BREAKOUT",
+            direction="long",
+            last_close=101.0,
+            fast_ema=100.5,
+            slow_ema=100.2,
+            atr=2.0,
+            efficiency_ratio=0.25,
+            choppiness=64.0,
+            dmi_plus=18.0,
+            dmi_minus=16.0,
+            adx=14.0,
+            ttm_squeeze=True,
+        )
+
+        diagnostics = features.evaluate_compression_expansion_diagnostics(
+            _compression_expansion_structure(),
+            _entry_candles(),
+            non_mature_regime,
+            context_features={"asset": "BTC", "timeframe_group": "B"},
+        )
+
+        self.assertTrue(diagnostics["candidate_ready"], diagnostics)
+        self.assertEqual(diagnostics["first_failed_stage"], "")
+        self.assertTrue(diagnostics["stages"]["compression_detected"]["passed"])
+        self.assertTrue(diagnostics["stages"]["breakout_volume_valid"]["passed"])
+        self.assertTrue(diagnostics["stages"]["midpoint_hold"]["passed"])
+        self.assertEqual(diagnostics["metrics"]["direction"], "long")
+        self.assertIn("breakout_score", diagnostics["metrics"])
+        self.assertIn("breakout_displacement_box_ratio", diagnostics["metrics"])
+        self.assertIn("volume_expansion_vs_compression", diagnostics["metrics"])
+        self.assertIn("acceptance_window_bars", diagnostics["metrics"])
+        self.assertIn("close_back_inside_box", diagnostics["metrics"])
+        self.assertIn("primary_failure_reason", diagnostics["metrics"])
+        self.assertIn(diagnostics["metrics"]["ce_subtype"], {"impulse_breakout", "acceptance_retest", "ambiguous"})
+
+    def test_compression_expansion_semantic_v2_accepts_wick_retest_without_close_failure(self):
+        features = _import_features()
+        regime = features.MarketRegimeContext(
+            status="COMPRESSION_PENDING_BREAKOUT",
+            direction="long",
+            last_close=101.0,
+            fast_ema=100.5,
+            slow_ema=100.2,
+            atr=2.0,
+            efficiency_ratio=0.25,
+            choppiness=64.0,
+            dmi_plus=18.0,
+            dmi_minus=16.0,
+            adx=14.0,
+            ttm_squeeze=True,
+        )
+        semantic_structure = tuple(
+            candle._replace(open=101.65, high=102.25, low=100.70, close=101.85, volume=360.0)
+            if index == 9
+            else candle
+            for index, candle in enumerate(_compression_expansion_structure())
+        )
+
+        diagnostics = features.evaluate_compression_expansion_diagnostics(
+            semantic_structure,
+            _entry_candles(),
+            regime,
+            parameters=features.StrategyParameters(
+                compression_breakout_semantic_policy="semantic_v2",
+                compression_acceptance_window_bars=3,
+                compression_stop_policy="opposite_edge_structural_stop",
+                compression_min_breakout_score=0.1,
+            ),
+            context_features={"asset": "BTC", "timeframe_group": "B"},
+        )
+
+        self.assertTrue(diagnostics["candidate_ready"], diagnostics)
+        self.assertFalse(diagnostics["metrics"]["close_back_inside_box"])
+        self.assertTrue(diagnostics["metrics"]["wick_back_inside_but_close_hold"])
+        self.assertEqual(diagnostics["metrics"]["primary_failure_reason"], "")
+
+    def test_compression_expansion_acceptance_retest_entry_uses_retest_reference(self):
+        features = _import_features()
+        regime = features.MarketRegimeContext(
+            status="COMPRESSION_PENDING_BREAKOUT",
+            direction="long",
+            last_close=101.0,
+            fast_ema=100.5,
+            slow_ema=100.2,
+            atr=2.0,
+            efficiency_ratio=0.25,
+            choppiness=64.0,
+            dmi_plus=18.0,
+            dmi_minus=16.0,
+            adx=14.0,
+            ttm_squeeze=True,
+        )
+        semantic_structure = tuple(
+            candle._replace(open=101.65, high=102.25, low=100.70, close=101.85, volume=360.0)
+            if index == 9
+            else candle
+            for index, candle in enumerate(_compression_expansion_structure())
+        )
+
+        diagnostics = features.evaluate_compression_expansion_diagnostics(
+            semantic_structure,
+            _entry_candles(),
+            regime,
+            parameters=features.StrategyParameters(
+                compression_breakout_semantic_policy="semantic_v2",
+                compression_acceptance_window_bars=3,
+                compression_entry_policy="acceptance_retest_close",
+                compression_stop_policy="acceptance_retest_structural_stop",
+                compression_hold_policy="midpoint_or_boundary",
+                compression_min_breakout_score=0.1,
+            ),
+            context_features={"asset": "BTC", "timeframe_group": "B"},
+        )
+
+        self.assertTrue(diagnostics["candidate_ready"], diagnostics)
+        self.assertEqual(diagnostics["metrics"]["entry_policy"], "acceptance_retest_close")
+        self.assertEqual(diagnostics["metrics"]["entry_reference_time"], semantic_structure[-1].timestamp_ms)
+        self.assertEqual(diagnostics["metrics"]["entry_reference_price"], float(semantic_structure[-1].close))
+
+    def test_compression_expansion_reports_failed_breakout(self):
+        features = _import_features()
+        regime = features.MarketRegimeContext(
+            status="COMPRESSION_PENDING_BREAKOUT",
+            direction="long",
+            last_close=101.0,
+            fast_ema=100.5,
+            slow_ema=100.2,
+            atr=2.0,
+            efficiency_ratio=0.25,
+            choppiness=64.0,
+            dmi_plus=18.0,
+            dmi_minus=16.0,
+            adx=14.0,
+            ttm_squeeze=True,
+        )
+        failed = tuple(
+            candle._replace(close=100.40, low=100.10) if index == 9 else candle
+            for index, candle in enumerate(_compression_expansion_structure())
+        )
+
+        diagnostics = features.evaluate_compression_expansion_diagnostics(
+            failed,
+            _entry_candles(),
+            regime,
+            context_features={"asset": "BTC", "timeframe_group": "B"},
+        )
+
+        self.assertFalse(diagnostics["candidate_ready"], diagnostics)
+        self.assertEqual(diagnostics["first_failed_stage"], "failed_breakout_absent")
+        self.assertFalse(diagnostics["stages"]["failed_breakout_absent"]["passed"])
+
+    def test_breakout_pullback_diagnostics_marks_state_machine_candidate_ready(self):
+        features = _import_features()
+        regime = features.MarketRegimeContext(
+            status="COMPRESSION_PENDING_BREAKOUT",
+            direction="long",
+            last_close=103.7,
+            fast_ema=101.5,
+            slow_ema=100.8,
+            atr=2.0,
+            efficiency_ratio=0.45,
+            choppiness=48.0,
+            dmi_plus=24.0,
+            dmi_minus=16.0,
+            adx=18.0,
+            ttm_squeeze=False,
+        )
+
+        diagnostics = features.evaluate_breakout_pullback_diagnostics(
+            _breakout_pullback_structure(),
+            _entry_candles(),
+            regime,
+            parameters=features.StrategyParameters(
+                bp_variant_policy="level_retest",
+                bp_min_breakout_score=0.10,
+                bp_min_relaunch_score=0.10,
+            ),
+            context_features={"asset": "BTC", "timeframe_group": "B"},
+        )
+
+        self.assertTrue(diagnostics["candidate_ready"], diagnostics)
+        self.assertEqual(diagnostics["first_failed_stage"], "")
+        self.assertTrue(diagnostics["stages"]["true_breakout"]["passed"])
+        self.assertTrue(diagnostics["stages"]["acceptance_window"]["passed"])
+        self.assertTrue(diagnostics["stages"]["healthy_pullback"]["passed"])
+        self.assertTrue(diagnostics["stages"]["relaunch_confirmation"]["passed"])
+        metrics = diagnostics["metrics"]
+        self.assertEqual(metrics["setup_id"], "breakout_pullback")
+        self.assertEqual(metrics["bp_subtype"], "level_retest_continuation")
+        self.assertGreater(metrics["breakout_score"], 0)
+        self.assertGreater(metrics["acceptance_score"], 0)
+        self.assertGreater(metrics["pullback_quality_score"], 0)
+        self.assertGreater(metrics["relaunch_score"], 0)
+        self.assertIn("pullback_depth_ATR", metrics)
+        self.assertIn("cost_adjusted_RR", metrics)
+        self.assertEqual(metrics["primary_failure_reason"], "")
+
+    def test_breakout_pullback_rejects_fake_breakout_before_pullback(self):
+        features = _import_features()
+        failed = tuple(
+            candle._replace(close=100.55, low=100.20) if index == 7 else candle
+            for index, candle in enumerate(_breakout_pullback_structure())
+        )
+
+        diagnostics = features.evaluate_breakout_pullback_diagnostics(
+            failed,
+            _entry_candles(),
+            None,
+            parameters=features.StrategyParameters(bp_min_breakout_score=0.10),
+            context_features={"asset": "BTC", "timeframe_group": "B"},
+        )
+
+        self.assertFalse(diagnostics["candidate_ready"], diagnostics)
+        self.assertEqual(diagnostics["first_failed_stage"], "acceptance_window")
+        self.assertEqual(diagnostics["metrics"]["primary_failure_reason"], "close_back_inside_level")
 
     def test_detects_liquidity_reversal_from_sweep_and_choch(self):
         features = _import_features()

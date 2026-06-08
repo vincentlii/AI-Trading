@@ -123,6 +123,108 @@ ANATOMY_FIELDS = (
     "risk_reject_reason",
     "structure_reject_reason",
     "volume_reject_reason",
+    "compression_box_height",
+    "box_height_ATR",
+    "box_duration",
+    "box_upper",
+    "box_lower",
+    "box_midpoint",
+    "breakout_displacement",
+    "breakout_displacement_ATR",
+    "breakout_displacement_box_ratio",
+    "breakout_score",
+    "breakout_close_location",
+    "breakout_body_pct",
+    "breakout_range_vs_ATR",
+    "breakout_range_vs_box_height",
+    "close_outside_box_distance_ATR",
+    "breakout_RVOL",
+    "breakout_volume_z",
+    "volume_expansion_vs_compression",
+    "range_expansion_vs_compression",
+    "body_expansion_vs_compression",
+    "acceptance_window_bars",
+    "close_back_inside_box",
+    "close_back_inside_box_bar_index",
+    "close_below_breakout_level",
+    "close_above_breakout_level",
+    "midpoint_lost_after_breakout",
+    "wick_back_inside_but_close_hold",
+    "boundary_hold_after_breakout",
+    "midpoint_hold_after_breakout",
+    "followthrough_bar_count",
+    "max_favorable_excursion_before_retest",
+    "max_adverse_excursion_before_acceptance",
+    "high_volume_no_result_after_breakout",
+    "primary_failure_reason",
+    "secondary_failure_reasons",
+    "ce_subtype",
+    "midpoint_hold",
+    "boundary_hold",
+    "retest_hold",
+    "retest_depth_ATR",
+    "bars_to_retest",
+    "entry_to_stop",
+    "stop_distance_ATR",
+    "stop_distance_box_ratio",
+    "stop_anchor_type",
+    "stop_buffer_ATR",
+    "stop_inside_box",
+    "target_space",
+    "gross_RR",
+    "cost_adjusted_RR",
+    "cost_per_R",
+    "net_R",
+    "risk_engine_reject_reason",
+    "margin_required",
+    "notional",
+    "position_size",
+    "portfolio_heat_after_entry",
+    "candidate_quality_tag",
+    "breakout_pullback_event_id",
+    "breakout_reference_level",
+    "breakout_level_type",
+    "breakout_close",
+    "breakout_displacement_level_ratio",
+    "breakout_range_expansion",
+    "breakout_body_expansion",
+    "acceptance_end_time",
+    "close_back_inside_level",
+    "close_back_inside_bar_index",
+    "wick_back_but_close_hold",
+    "immediate_reclaim",
+    "high_volume_no_result",
+    "acceptance_score",
+    "acceptance_status",
+    "pullback_start_time",
+    "pullback_end_time",
+    "pullback_depth_ATR",
+    "pullback_depth_vs_breakout",
+    "pullback_depth_vs_box",
+    "pullback_bars",
+    "pullback_volume_ratio_vs_breakout",
+    "pullback_volume_contraction",
+    "pullback_range_contraction",
+    "pullback_body_contraction",
+    "pullback_close_location",
+    "pullback_zone_type",
+    "pullback_zone_distance_ATR",
+    "pullback_held_level",
+    "pullback_invalidated",
+    "pullback_quality_score",
+    "relaunch_time",
+    "relaunch_close",
+    "relaunch_displacement_ATR",
+    "relaunch_body_pct",
+    "relaunch_close_location",
+    "relaunch_volume_recovery",
+    "relaunch_breaks_micro_structure",
+    "relaunch_score",
+    "stop_distance_level_ratio",
+    "bp_subtype",
+    "stop_distance_too_near_attribution",
+    "margin_reject_attribution",
+    "near_miss_shadow",
 )
 
 
@@ -135,6 +237,12 @@ def build_candidate_anatomy_rows(
     candles_cache: dict[tuple[str, str, str, str], tuple[object, ...]] = {}
     rows: list[dict[str, object]] = []
     for row in filter_rows:
+        if str(row.get("setup", "")) == "compression_expansion":
+            rows.append(_compression_expansion_anatomy_row(row))
+            continue
+        if str(row.get("setup", "")) == "breakout_pullback":
+            rows.append(_breakout_pullback_anatomy_row(row))
+            continue
         if str(row.get("setup", "")) != "liquidity_reversal":
             continue
         profile = get_profile(str(row["profile"]))
@@ -277,9 +385,217 @@ def build_candidate_anatomy_rows(
     return tuple(rows)
 
 
+def _compression_expansion_anatomy_row(row: Mapping[str, object]) -> dict[str, object]:
+    timestamp_ms = _optional_int(row.get("timestamp_ms"))
+    entry = _optional_float(row.get("entry_price")) or _optional_float(row.get("entry_reference_price")) or 0.0
+    stop = _optional_float(row.get("stop_price")) or 0.0
+    target = _optional_float(row.get("target_price")) or 0.0
+    atr = _optional_float(row.get("atr_value")) or 0.0
+    stop_distance = abs(entry - stop)
+    target_space = _optional_float(row.get("target_space"))
+    if target_space is None:
+        target_space = abs(target - entry)
+    gross_rr = _optional_float(row.get("gross_RR")) or _optional_float(row.get("target_r")) or _ratio(target_space, stop_distance) or 0.0
+    cost_per_r = _optional_float(row.get("cost_per_R")) or _optional_float(row.get("estimated_cost_r")) or 0.0
+    cost_adjusted_rr = _optional_float(row.get("cost_adjusted_RR"))
+    if cost_adjusted_rr is None:
+        cost_adjusted_rr = gross_rr - cost_per_r
+    risk_reason = _risk_reason(row)
+    stop_attr = _ce_stop_near_attribution(row, stop_distance, atr)
+    margin_attr = _ce_margin_attribution(row, stop_distance, atr)
+    near_miss = _ce_near_miss_shadow(row, risk_reason, stop_attr, margin_attr, gross_rr, cost_adjusted_rr)
+    quality = str(row.get("candidate_quality_tag") or "")
+    if not quality:
+        quality = near_miss if near_miss in {"low_quality_reject", "reasonable_near_miss"} else "medium_quality_candidate"
+    return {
+        "row_type": "diagnostic_only",
+        "candidate_id": row.get("candidate_id", ""),
+        "timestamp": _iso(timestamp_ms),
+        "timestamp_ms": timestamp_ms,
+        "asset": row.get("asset", ""),
+        "profile": row.get("profile", ""),
+        "setup": "compression_expansion",
+        "direction": row.get("direction", ""),
+        "long_or_short": row.get("long_or_short", row.get("direction", "")),
+        "signal_time": _iso(_optional_int(row.get("signal_time")) or timestamp_ms),
+        "entry_time": _iso(_optional_int(row.get("entry_time")) or _optional_int(row.get("entry_timestamp_ms"))),
+        "structure_time": _iso(_optional_int(row.get("compression_end_time"))),
+        "sweep_time": _iso(_optional_int(row.get("breakout_time"))),
+        "reclaim_time": _iso(_optional_int(row.get("confirmation_time"))),
+        "candidate_lifecycle_status": row.get("candidate_lifecycle_status", ""),
+        "candidate_lifecycle_reason": row.get("candidate_lifecycle_reason", ""),
+        "sweep_event_id": row.get("sweep_event_id", row.get("compression_event_id", "")),
+        "candidate_generation_reason": row.get("candidate_generation_reason", ""),
+        "structure_level": row.get("structure_level", ""),
+        "structure_level_type": "compression_box_upper" if row.get("direction") == "long" else "compression_box_lower",
+        "entry_price": entry,
+        "entry_reference_price": row.get("entry_reference_price", entry),
+        "actual_entry_price_if_simulated": row.get("actual_entry_price_if_simulated", entry),
+        "stop_price": stop,
+        "target_price": target,
+        "atr_used_for_stop": atr,
+        "atr_used_for_stop_timeframe": row.get("atr_used_for_stop_timeframe", ""),
+        "stop_formula_used": row.get("stop_formula_used", ""),
+        "stop_price_distance_abs": stop_distance,
+        "stop_distance_abs": stop_distance,
+        "stop_distance_pct": _ratio(stop_distance, entry),
+        "stop_atr_multiple_entry_tf": _optional_float(row.get("stop_distance_atr")) or _ratio(stop_distance, atr),
+        "stop_atr_multiple_used": _optional_float(row.get("stop_distance_atr")) or _ratio(stop_distance, atr),
+        "stop_bucket": _stop_bucket(_optional_float(row.get("stop_distance_atr")) or _ratio(stop_distance, atr)),
+        "target_distance_abs": target_space,
+        "target_r_entry_tf": gross_rr,
+        "target_r_structure_tf": gross_rr,
+        "min_target_r": row.get("min_target_r", ""),
+        "min_target_r_pass": gross_rr >= 1.0,
+        "rolling_rvol": row.get("breakout_rvol", row.get("rolling_rvol", "")),
+        "tod_dow_rvol": row.get("tod_dow_rvol", ""),
+        "volume_baseline_mode": row.get("volume_baseline_mode", ""),
+        "volume_bucket_sample_count": row.get("volume_bucket_sample_count", ""),
+        "used_fallback_volume_baseline": row.get("used_fallback_volume_baseline", ""),
+        "bos_detected": row.get("bos_detected", ""),
+        "trend_state": row.get("trend_state", ""),
+        "trend_aligned": row.get("trend_direction") in ("", row.get("direction")),
+        "final_reject_stage": row.get("reject_stage", ""),
+        "final_reject_reason": row.get("reject_reason", ""),
+        "formal_approved": row.get("formal_approved", False),
+        "shadow_approved_5": row.get("shadow_approved_5", False),
+        "shadow_approved_8": row.get("shadow_approved_8", False),
+        "risk_reject_reason": risk_reason,
+        "risk_engine_reject_reason": risk_reason,
+        "structure_reject_reason": row.get("reject_reason", "") if row.get("reject_stage") in {"price_action", "compression_quality"} else "",
+        "volume_reject_reason": row.get("reject_reason", "") if row.get("reject_stage") == "volume_filter" else "",
+        "compression_box_height": row.get("compression_box_height", ""),
+        "box_height_ATR": row.get("compression_box_atr", ""),
+        "box_duration": _ce_box_duration(row),
+        "box_upper": row.get("compression_high", ""),
+        "box_lower": row.get("compression_low", ""),
+        "box_midpoint": row.get("compression_midpoint", ""),
+        "breakout_displacement": row.get("breakout_range", ""),
+        "breakout_displacement_ATR": row.get("breakout_displacement_atr", ""),
+        "breakout_displacement_box_ratio": row.get("breakout_displacement_box_ratio", ""),
+        "breakout_score": row.get("breakout_score", ""),
+        "breakout_close_location": row.get("breakout_close_location", ""),
+        "breakout_body_pct": row.get("breakout_body_pct", row.get("breakout_body_ratio", "")),
+        "breakout_range_vs_ATR": row.get("breakout_range_vs_ATR", ""),
+        "breakout_range_vs_box_height": row.get("breakout_range_vs_box_height", ""),
+        "close_outside_box_distance_ATR": row.get("close_outside_box_distance_ATR", ""),
+        "breakout_RVOL": row.get("breakout_rvol", ""),
+        "breakout_volume_z": row.get("breakout_volume_z", ""),
+        "volume_expansion_vs_compression": row.get("volume_expansion_vs_compression", ""),
+        "range_expansion_vs_compression": row.get("range_expansion_vs_compression", ""),
+        "body_expansion_vs_compression": row.get("body_expansion_vs_compression", ""),
+        "acceptance_window_bars": row.get("acceptance_window_bars", ""),
+        "close_back_inside_box": row.get("close_back_inside_box", ""),
+        "close_back_inside_box_bar_index": row.get("close_back_inside_box_bar_index", ""),
+        "close_below_breakout_level": row.get("close_below_breakout_level", ""),
+        "close_above_breakout_level": row.get("close_above_breakout_level", ""),
+        "midpoint_lost_after_breakout": row.get("midpoint_lost_after_breakout", ""),
+        "wick_back_inside_but_close_hold": row.get("wick_back_inside_but_close_hold", ""),
+        "boundary_hold_after_breakout": row.get("boundary_hold_after_breakout", ""),
+        "midpoint_hold_after_breakout": row.get("midpoint_hold_after_breakout", ""),
+        "followthrough_bar_count": row.get("followthrough_bar_count", ""),
+        "max_favorable_excursion_before_retest": row.get("max_favorable_excursion_before_retest", ""),
+        "max_adverse_excursion_before_acceptance": row.get("max_adverse_excursion_before_acceptance", ""),
+        "high_volume_no_result_after_breakout": row.get("high_volume_no_result_after_breakout", ""),
+        "primary_failure_reason": row.get("primary_failure_reason", ""),
+        "secondary_failure_reasons": row.get("secondary_failure_reasons", ""),
+        "ce_subtype": row.get("ce_subtype", ""),
+        "midpoint_hold": row.get("midpoint_hold", ""),
+        "boundary_hold": row.get("boundary_hold", ""),
+        "retest_hold": row.get("retest_hold", ""),
+        "retest_depth_ATR": row.get("retest_depth_atr", ""),
+        "bars_to_retest": row.get("bars_to_retest", ""),
+        "entry_to_stop": row.get("entry_to_stop", stop_distance),
+        "stop_distance_ATR": row.get("stop_distance_atr", _ratio(stop_distance, atr)),
+        "stop_distance_box_ratio": row.get("stop_distance_box_ratio", ""),
+        "stop_anchor_type": row.get("stop_anchor_type", ""),
+        "stop_buffer_ATR": row.get("stop_buffer_atr", ""),
+        "stop_inside_box": row.get("stop_inside_box", ""),
+        "target_space": target_space,
+        "gross_RR": gross_rr,
+        "cost_adjusted_RR": cost_adjusted_rr,
+        "cost_per_R": cost_per_r,
+        "net_R": row.get("net_R", ""),
+        "margin_required": row.get("margin_required", ""),
+        "notional": row.get("notional", ""),
+        "position_size": row.get("position_size", row.get("quantity", "")),
+        "portfolio_heat_after_entry": row.get("portfolio_heat_after_entry", row.get("portfolio_heat", "")),
+        "candidate_quality_tag": quality,
+        "stop_distance_too_near_attribution": stop_attr,
+        "margin_reject_attribution": margin_attr,
+        "near_miss_shadow": near_miss,
+    }
+
+
+def _breakout_pullback_anatomy_row(row: Mapping[str, object]) -> dict[str, object]:
+    anatomy = _compression_expansion_anatomy_row(row)
+    anatomy.update(
+        {
+            "setup": "breakout_pullback",
+            "structure_time": _iso(_optional_int(row.get("breakout_time"))),
+            "sweep_time": _iso(_optional_int(row.get("breakout_time"))),
+            "reclaim_time": _iso(_optional_int(row.get("pullback_end_time"))),
+            "structure_level": row.get("breakout_reference_level", row.get("structure_level", "")),
+            "structure_level_type": row.get("breakout_level_type", ""),
+            "sweep_event_id": row.get("sweep_event_id", row.get("breakout_pullback_event_id", "")),
+            "breakout_pullback_event_id": row.get("breakout_pullback_event_id", ""),
+            "breakout_reference_level": row.get("breakout_reference_level", ""),
+            "breakout_level_type": row.get("breakout_level_type", ""),
+            "breakout_close": row.get("breakout_close", ""),
+            "breakout_displacement_ATR": row.get("breakout_displacement_ATR", row.get("breakout_displacement_atr", "")),
+            "breakout_displacement_level_ratio": row.get("breakout_displacement_level_ratio", ""),
+            "breakout_range_expansion": row.get("breakout_range_expansion", ""),
+            "breakout_body_expansion": row.get("breakout_body_expansion", ""),
+            "breakout_RVOL": row.get("breakout_RVOL", row.get("breakout_rvol", "")),
+            "acceptance_end_time": row.get("acceptance_end_time", ""),
+            "close_back_inside_level": row.get("close_back_inside_level", ""),
+            "close_back_inside_bar_index": row.get("close_back_inside_bar_index", ""),
+            "wick_back_but_close_hold": row.get("wick_back_but_close_hold", ""),
+            "immediate_reclaim": row.get("immediate_reclaim", ""),
+            "high_volume_no_result": row.get("high_volume_no_result", ""),
+            "acceptance_score": row.get("acceptance_score", ""),
+            "acceptance_status": row.get("acceptance_status", ""),
+            "pullback_start_time": row.get("pullback_start_time", ""),
+            "pullback_end_time": row.get("pullback_end_time", ""),
+            "pullback_depth_ATR": row.get("pullback_depth_ATR", ""),
+            "pullback_depth_vs_breakout": row.get("pullback_depth_vs_breakout", ""),
+            "pullback_depth_vs_box": row.get("pullback_depth_vs_box", ""),
+            "pullback_bars": row.get("pullback_bars", ""),
+            "pullback_volume_ratio_vs_breakout": row.get("pullback_volume_ratio_vs_breakout", ""),
+            "pullback_volume_contraction": row.get("pullback_volume_contraction", ""),
+            "pullback_range_contraction": row.get("pullback_range_contraction", ""),
+            "pullback_body_contraction": row.get("pullback_body_contraction", ""),
+            "pullback_close_location": row.get("pullback_close_location", ""),
+            "pullback_zone_type": row.get("pullback_zone_type", ""),
+            "pullback_zone_distance_ATR": row.get("pullback_zone_distance_ATR", ""),
+            "pullback_held_level": row.get("pullback_held_level", ""),
+            "pullback_invalidated": row.get("pullback_invalidated", ""),
+            "pullback_quality_score": row.get("pullback_quality_score", ""),
+            "relaunch_time": row.get("relaunch_time", ""),
+            "relaunch_close": row.get("relaunch_close", ""),
+            "relaunch_displacement_ATR": row.get("relaunch_displacement_ATR", ""),
+            "relaunch_body_pct": row.get("relaunch_body_pct", ""),
+            "relaunch_close_location": row.get("relaunch_close_location", ""),
+            "relaunch_volume_recovery": row.get("relaunch_volume_recovery", ""),
+            "relaunch_breaks_micro_structure": row.get("relaunch_breaks_micro_structure", ""),
+            "relaunch_score": row.get("relaunch_score", ""),
+            "stop_distance_ATR": row.get("stop_distance_ATR", row.get("stop_distance_atr", "")),
+            "stop_distance_level_ratio": row.get("stop_distance_level_ratio", ""),
+            "bp_subtype": row.get("bp_subtype", ""),
+            "ce_subtype": "",
+        }
+    )
+    return anatomy
+
+
 def summarize_candidate_anatomy(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
     total = len(rows)
     buckets = Counter(str(row.get("stop_bucket", "unknown_stop")) for row in rows)
+    near_miss = Counter(str(row.get("near_miss_shadow", "")) for row in rows if row.get("near_miss_shadow"))
+    risk_reasons = Counter(str(row.get("risk_reject_reason", "")) for row in rows if row.get("risk_reject_reason"))
+    subtype_counts = Counter(str(row.get("ce_subtype", "")) for row in rows if row.get("ce_subtype"))
+    bp_subtype_counts = Counter(str(row.get("bp_subtype", "")) for row in rows if row.get("bp_subtype"))
+    failure_counts = Counter(str(row.get("primary_failure_reason", "")) for row in rows if row.get("primary_failure_reason"))
     return {
         "total_candidates": total,
         "stop_buckets": {
@@ -317,6 +633,13 @@ def summarize_candidate_anatomy(rows: Sequence[Mapping[str, object]]) -> dict[st
         "formal_approved_count": sum(1 for row in rows if row.get("formal_approved")),
         "shadow_approved_5_count": sum(1 for row in rows if row.get("shadow_approved_5")),
         "shadow_approved_8_count": sum(1 for row in rows if row.get("shadow_approved_8")),
+        "near_miss_shadow_counts": dict(near_miss),
+        "risk_reject_reason_counts": dict(risk_reasons),
+        "ce_subtype_counts": dict(subtype_counts),
+        "bp_subtype_counts": dict(bp_subtype_counts),
+        "breakout_failure_taxonomy_counts": dict(failure_counts),
+        "stop_distance_too_near_attribution_counts": dict(Counter(str(row.get("stop_distance_too_near_attribution", "")) for row in rows if row.get("stop_distance_too_near_attribution"))),
+        "margin_reject_attribution_counts": dict(Counter(str(row.get("margin_reject_attribution", "")) for row in rows if row.get("margin_reject_attribution"))),
     }
 
 
@@ -541,12 +864,81 @@ def _target_source(row: Mapping[str, object], stop_distance: float, target_dista
 def _risk_reason(row: Mapping[str, object]) -> str:
     if row.get("reject_stage") == "risk_filter":
         return str(row.get("reject_reason", ""))
+    if row.get("reject_stage") == "contract_risk_filter":
+        return str(row.get("contract_risk_reject_reason") or row.get("reject_reason", ""))
     codes = row.get("risk_reason_codes", ())
     if isinstance(codes, str):
         return codes
     if isinstance(codes, Sequence):
         return ",".join(str(code) for code in codes)
     return ""
+
+
+def _ce_box_duration(row: Mapping[str, object]) -> int | None:
+    start = _optional_int(row.get("compression_start_time"))
+    end = _optional_int(row.get("compression_end_time"))
+    if start is None or end is None:
+        return None
+    return max(0, end - start)
+
+
+def _ce_stop_near_attribution(row: Mapping[str, object], stop_distance: float, atr: float) -> str:
+    reason = str(row.get("reject_reason", ""))
+    codes = row.get("risk_reason_codes", ())
+    code_text = ",".join(str(code) for code in codes) if isinstance(codes, Sequence) and not isinstance(codes, str) else str(codes)
+    if "stop_distance_too_near" not in reason and "stop_distance_too_near" not in code_text:
+        return ""
+    box_atr = _optional_float(row.get("compression_box_atr")) or 0.0
+    stop_atr = _optional_float(row.get("stop_distance_atr")) or _ratio(stop_distance, atr) or 0.0
+    anchor = str(row.get("stop_anchor_type", ""))
+    min_stop = _optional_float(row.get("min_stop_atr_multiple")) or 0.8
+    if anchor in {"breakout_midpoint_or_box_edge", "box_upper", "box_lower"}:
+        return "stop_anchor_too_close"
+    if box_atr > 0 and box_atr < min_stop:
+        return "box_too_narrow"
+    if stop_atr < min_stop:
+        return "atr_floor_or_min_stop_conflict"
+    return "entry_too_early"
+
+
+def _ce_margin_attribution(row: Mapping[str, object], stop_distance: float, atr: float) -> str:
+    reason = str(row.get("reject_reason", ""))
+    contract_reason = str(row.get("contract_risk_reject_reason", ""))
+    margin = _optional_float(row.get("margin_required")) or 0.0
+    notional = _optional_float(row.get("notional")) or 0.0
+    has_margin_reject = "margin_required_too_high" in reason or "margin_required_too_high" in contract_reason
+    has_stop_reject = "stop_distance_too_near" in reason or "stop_distance_too_near" in str(row.get("risk_reason_codes", ""))
+    if not has_margin_reject and not has_stop_reject:
+        return ""
+    stop_atr = _optional_float(row.get("stop_distance_atr")) or _ratio(stop_distance, atr) or 0.0
+    if stop_atr < (_optional_float(row.get("min_stop_atr_multiple")) or 0.8) or (has_margin_reject and (margin > 0 or notional > 0)):
+        return "stop_distance_position_size_coupling"
+    return "independent_margin_constraint"
+
+
+def _ce_near_miss_shadow(
+    row: Mapping[str, object],
+    risk_reason: str,
+    stop_attr: str,
+    margin_attr: str,
+    gross_rr: float,
+    cost_adjusted_rr: float,
+) -> str:
+    if bool(row.get("formal_approved")):
+        return "approved"
+    reject_reason = str(row.get("reject_reason", ""))
+    box_atr = _optional_float(row.get("compression_box_atr")) or 0.0
+    rvol = _optional_float(row.get("breakout_rvol")) or 0.0
+    if gross_rr < 1.0 or cost_adjusted_rr <= 0 or box_atr <= 0 or rvol < 1.0:
+        return "low_quality_reject"
+    if stop_attr or margin_attr or risk_reason in {"stop_distance_too_near", "margin_required_too_high"}:
+        anchor = str(row.get("stop_anchor_type", ""))
+        if anchor == "breakout_midpoint_or_box_edge" and stop_attr == "stop_anchor_too_close":
+            return "reasonable_near_miss"
+        return "definition_conflict"
+    if reject_reason:
+        return "low_quality_reject"
+    return "reasonable_near_miss"
 
 
 def _reason_if(row: Mapping[str, object], reasons: set[str]) -> str:

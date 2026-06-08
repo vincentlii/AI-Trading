@@ -264,7 +264,7 @@ def _validate_preset(preset: BacktestPresetConfig) -> None:
     if not preset.strategy.enabled_setups:
         raise ConfigError("enabled_setups must not be empty")
     if preset.strategy.name == "trend_price_volume" and preset.strategy.version == "v1":
-        invalid = set(preset.strategy.enabled_setups) - {"trend_continuation", "liquidity_reversal"}
+        invalid = set(preset.strategy.enabled_setups) - {"trend_continuation", "liquidity_reversal", "compression_expansion"}
         if invalid:
             raise ConfigError(f"strategy setup is not supported: {', '.join(sorted(invalid))}")
     _pct("ranking.fast_profile_fee_reject_threshold", preset.ranking.fast_profile_fee_reject_threshold)

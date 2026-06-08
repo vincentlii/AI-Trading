@@ -8,7 +8,7 @@ from research_pipeline.cli.research import main
 from research_pipeline.runners.research_flow_audit import run_research_flow_audit
 
 
-ARTIFACT_DIR = Path("storage/backtest_cache/lr_combined_fix_pr11g")
+from research_pipeline.tests.fixture_paths import COMBINED_FIX_DIR as ARTIFACT_DIR
 
 
 class ResearchFlowCrossReportAuditTest(unittest.TestCase):

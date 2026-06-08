@@ -18,8 +18,8 @@ PERFORMANCE_METRICS = {
 def recompute_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     closed = [row for row in rows if _is_closed_trade_row(row)]
     net = [_float(row.get("net_R")) for row in closed]
-    mfe = [_float(row.get("mfe_R")) for row in closed]
-    mae = [_float(row.get("mae_R")) for row in closed]
+    mfe = [_float(_first(row, "mfe_R", "MFE_R")) for row in closed]
+    mae = [_float(_first(row, "mae_R", "MAE_R")) for row in closed]
     time_cut = [row for row in closed if row.get("time_cut_exit")]
     total_net = sum(value for value in net if value is not None)
     return {
@@ -82,8 +82,12 @@ def comparison_rows(
 
 def duplicate_event_count(rows: list[dict[str, Any]]) -> int:
     base = [row for row in rows if row.get("cost_tier") == "base"]
-    keys = [f"{row.get('event_key')}|{row.get('direction')}" for row in base]
+    keys = [f"{_event_identity(row)}|{row.get('direction')}" for row in base]
     return len(keys) - len(set(keys))
+
+
+def _event_identity(row: dict[str, Any]) -> Any:
+    return row.get("event_key") or row.get("event_id") or row.get("candidate_id") or row.get("trade_id")
 
 
 def _is_closed_trade_row(row: dict[str, Any]) -> bool:
@@ -101,6 +105,13 @@ def _float(value: Any) -> float | None:
         return None
 
 
+def _first(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if row.get(key) not in (None, ""):
+            return row.get(key)
+    return None
+
+
 def _avg(values: Iterable[float | None]) -> float | None:
     clean = [float(value) for value in values if value is not None]
     return None if not clean else sum(clean) / len(clean)
@@ -115,7 +126,7 @@ def _profit_factor(values: Iterable[float]) -> float | None:
     wins = sum(value for value in clean if value > 0)
     losses = abs(sum(value for value in clean if value < 0))
     if losses == 0:
-        return None if wins == 0 else float("inf")
+        return None
     return wins / losses
 
 

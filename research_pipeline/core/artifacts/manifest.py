@@ -61,3 +61,41 @@ class ArtifactIndex:
                 f"{record.window} | `{record.file_hash[:12]}` |"
             )
         return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class RunManifest:
+    run_id: str
+    strategy: str
+    adapter_version: str
+    dataset_window: str
+    artifact_contract: dict[str, Any]
+    audit_profile: dict[str, Any]
+    artifact_paths: dict[str, str] = field(default_factory=dict)
+    config_snapshot: dict[str, Any] = field(default_factory=dict)
+    baseline_ref: str | None = None
+    proposal_only: bool = True
+    formal_conclusion_enabled: bool = False
+    notes: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def as_json(self) -> str:
+        return json.dumps(self.as_dict(), ensure_ascii=False, indent=2, sort_keys=True)
+
+    def as_markdown(self) -> str:
+        return "\n".join(
+            [
+                f"# Run Manifest: {self.strategy}",
+                "",
+                f"- run_id: {self.run_id}",
+                f"- adapter_version: {self.adapter_version}",
+                f"- dataset_window: {self.dataset_window}",
+                f"- proposal_only: {str(self.proposal_only).lower()}",
+                f"- formal_conclusion_enabled: {str(self.formal_conclusion_enabled).lower()}",
+                f"- baseline_ref: {self.baseline_ref or ''}",
+                f"- artifact_paths: {len(self.artifact_paths)}",
+                f"- notes: {self.notes}",
+            ]
+        )

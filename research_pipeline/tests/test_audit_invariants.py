@@ -4,7 +4,7 @@ from pathlib import Path
 from research_pipeline.runners.full_pipeline_audit import run_full_pipeline_audit
 
 
-ARTIFACT_DIR = Path("storage/backtest_cache/lr_combined_fix_pr11g")
+from research_pipeline.tests.fixture_paths import COMBINED_FIX_DIR as ARTIFACT_DIR
 
 
 class AuditInvariantsTest(unittest.TestCase):

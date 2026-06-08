@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from research_pipeline.adapters.breakout_pullback import BreakoutPullbackAdapter
+from research_pipeline.adapters.compression_expansion import CompressionExpansionAdapter
 from research_pipeline.adapters.base import StrategyAdapter
 from research_pipeline.adapters.liquidity_reversal import LiquidityReversalAdapter
+from research_pipeline.adapters.trend_continuation import TrendContinuationAdapter
 
 
 class StrategyRegistry:
@@ -33,4 +36,7 @@ class StrategyRegistry:
 def default_strategy_registry() -> StrategyRegistry:
     registry = StrategyRegistry()
     registry.register(LiquidityReversalAdapter())
+    registry.register(TrendContinuationAdapter())
+    registry.register(CompressionExpansionAdapter())
+    registry.register(BreakoutPullbackAdapter())
     return registry

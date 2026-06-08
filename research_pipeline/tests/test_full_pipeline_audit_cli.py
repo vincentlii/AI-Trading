@@ -8,7 +8,7 @@ from pathlib import Path
 from research_pipeline.cli.research import main
 
 
-ARTIFACT_DIR = Path("storage/backtest_cache/lr_combined_fix_pr11g")
+from research_pipeline.tests.fixture_paths import COMBINED_FIX_DIR as ARTIFACT_DIR
 
 
 class FullPipelineAuditCliTest(unittest.TestCase):

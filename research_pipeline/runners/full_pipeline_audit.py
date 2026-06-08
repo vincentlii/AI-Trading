@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -26,6 +26,15 @@ def run_full_pipeline_audit(
     output_dir: Path | None,
 ) -> FullPipelineAuditResult:
     artifact_dir = Path(artifact_dir)
+    manifest_path = artifact_dir / "run_manifest.json"
+    if manifest_path.exists():
+        return _run_manifest_full_pipeline_audit(
+            strategy=strategy,
+            artifact_dir=artifact_dir,
+            manifest_path=manifest_path,
+            registry=registry,
+            output_dir=output_dir,
+        )
     fix_result = _read_json(artifact_dir / "lr_combined_candidate_fix_result.json")
     lineage_repair_result = _read_optional_json(artifact_dir / "lineage_repair_result.json")
     variant_rows = _read_jsonl(artifact_dir / "lr_combined_variant_rows.jsonl")
@@ -106,6 +115,246 @@ def run_full_pipeline_audit(
     if output_dir is not None:
         _write_outputs(result, Path(output_dir))
     return result
+
+
+def _run_manifest_full_pipeline_audit(
+    *,
+    strategy: str,
+    artifact_dir: Path,
+    manifest_path: Path,
+    registry: Path | None,
+    output_dir: Path | None,
+) -> FullPipelineAuditResult:
+    manifest = _read_json(manifest_path)
+    artifact_paths = {
+        key: _resolve_artifact_path(artifact_dir, value)
+        for key, value in (manifest.get("artifact_paths") or {}).items()
+        if isinstance(value, str) and value
+    }
+    candidate_rows = _read_optional_jsonl(artifact_paths.get("candidate_rows"))
+    filter_rows = _read_optional_jsonl(artifact_paths.get("filter_results"))
+    closed_rows = _read_optional_jsonl(artifact_paths.get("closed_trade_rows"))
+    diagnostic_rows = _read_optional_jsonl(artifact_paths.get("diagnostic_rows"))
+    summary_rows = _read_optional_jsonl(artifact_paths.get("summary_rows"))
+    robustness_rows = _read_optional_jsonl(artifact_paths.get("robustness_rows"))
+    audit_profile = manifest.get("audit_profile") or {}
+    required_lineage = set(audit_profile.get("required_lineage_fields") or ["trade_id", "execution_id", "candidate_id", "event_id"])
+    required_time = set(audit_profile.get("required_time_fields") or [])
+
+    schema_rows = []
+    schema_rows.extend(
+        build_schema_contract_rows(
+            artifact_name="candidate_rows.jsonl",
+            rows=candidate_rows,
+            inferred_row_type="proposal_candidate",
+            required_fields={"candidate_id", "event_id", "row_type"},
+            blocking_missing_row_type=False,
+        )
+    )
+    schema_rows.extend(
+        build_schema_contract_rows(
+            artifact_name="closed_trade_rows.jsonl",
+            rows=closed_rows,
+            inferred_row_type="closed_trade",
+            required_fields=required_lineage | required_time | {"row_type", "closed_trade", "net_R", "mfe_R", "mae_R", "cost_tier"},
+            blocking_missing_row_type=False,
+        )
+    )
+    schema_rows.extend(
+        build_schema_contract_rows(
+            artifact_name="summary_rows.jsonl",
+            rows=summary_rows,
+            inferred_row_type="summary_row",
+            required_fields={"row_type", "cost_tier", "closed_trades", "net_R_avg", "total_net_R"},
+            blocking_missing_row_type=False,
+        )
+    )
+
+    lineage_rows = _generic_lineage_rows(closed_rows=closed_rows, candidate_rows=candidate_rows, filter_rows=filter_rows)
+    join_rows = _generic_join_integrity_rows(closed_rows=closed_rows, candidate_rows=candidate_rows, filter_rows=filter_rows)
+    proposal_rows = _generic_proposal_boundary_rows(
+        closed_rows=closed_rows,
+        candidate_rows=candidate_rows,
+        filter_rows=filter_rows,
+        diagnostic_rows=diagnostic_rows,
+        summary_rows=summary_rows,
+        robustness_rows=robustness_rows,
+    )
+    no_lookahead_rows = build_no_lookahead_rows(
+        closed_rows,
+        time_field_checks=audit_profile.get("time_order_checks"),
+    )
+    metric_rows = []
+    for summary in summary_rows:
+        cost_tier = str(summary.get("cost_tier") or "base")
+        tier_closed = [row for row in closed_rows if str(row.get("cost_tier") or "base") == cost_tier]
+        metric_rows.extend(
+            comparison_rows(
+                scope=str(summary.get("scope") or strategy),
+                cost_tier=cost_tier,
+                reported=summary,
+                recomputed=recompute_metrics(tier_closed),
+                source_artifact=str(artifact_paths.get("closed_trade_rows", "")),
+            )
+        )
+    artifact_rows = build_artifact_integrity_rows(artifact_dir, registry=registry)
+    report_rows = build_report_consistency_rows(artifact_dir)
+    code_rows = build_code_logic_review_rows(Path.cwd())
+    regression_rows = _regression_baseline_rows(artifact_paths)
+    robustness_gate_rows = _robustness_gate_rows(robustness_rows)
+
+    blocking_issues = _blocking_issues(
+        join_rows=join_rows,
+        proposal_rows=proposal_rows + regression_rows + robustness_gate_rows,
+        no_lookahead_rows=no_lookahead_rows,
+        metric_rows=metric_rows,
+        artifact_rows=artifact_rows,
+        code_rows=code_rows,
+        lineage_repair_result=None,
+    )
+    warnings = _warnings(schema_rows, join_rows, no_lookahead_rows, artifact_rows, report_rows, code_rows)
+    primary_decision = _primary_decision(blocking_issues)
+    result = FullPipelineAuditResult(
+        strategy=strategy,
+        proposal_only=bool(manifest.get("proposal_only", True)),
+        formal_conclusion_enabled=bool(manifest.get("formal_conclusion_enabled", False)),
+        audit_passed=primary_decision in {"A", "B"},
+        primary_decision=primary_decision,
+        blocking_issues=blocking_issues,
+        non_blocking_warnings=warnings,
+        next_pr_recommendation="strategy research validation review" if primary_decision in {"A", "B"} else "manifest/audit input fix",
+        schema_contract_rows=schema_rows,
+        lineage_rows=lineage_rows,
+        join_integrity_rows=join_rows,
+        proposal_boundary_rows=proposal_rows + regression_rows + robustness_gate_rows,
+        no_lookahead_rows=no_lookahead_rows,
+        metric_recompute_rows=metric_rows,
+        report_consistency_rows=report_rows,
+        artifact_integrity_rows=artifact_rows,
+        code_logic_review_rows=code_rows,
+        source_files=[str(manifest_path), *[str(path) for path in artifact_paths.values()]],
+    )
+    if output_dir is not None:
+        _write_outputs(result, Path(output_dir))
+    return result
+
+
+def _resolve_artifact_path(artifact_dir: Path, value: str) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    cwd_relative = path.resolve()
+    if cwd_relative.exists():
+        return cwd_relative
+    return (artifact_dir / path).resolve()
+
+
+def _read_optional_jsonl(path: Path | None) -> list[dict[str, Any]]:
+    if path is None or not path.exists():
+        return []
+    return _read_jsonl(path)
+
+
+def _generic_lineage_rows(
+    *,
+    closed_rows: list[dict[str, Any]],
+    candidate_rows: list[dict[str, Any]],
+    filter_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    candidates = {row.get("candidate_id") for row in candidate_rows}
+    filters = {row.get("candidate_id") for row in filter_rows}
+    return [
+        {
+            "scope": "closed_trade_lineage",
+            "closed_count": len(closed_rows),
+            "candidate_linked_count": sum(1 for row in closed_rows if row.get("candidate_id") in candidates),
+            "filter_linked_count": sum(1 for row in closed_rows if row.get("candidate_id") in filters),
+            "missing_trade_id_count": sum(1 for row in closed_rows if not row.get("trade_id")),
+            "missing_execution_id_count": sum(1 for row in closed_rows if not row.get("execution_id")),
+            "missing_event_id_count": sum(1 for row in closed_rows if not row.get("event_id")),
+        }
+    ]
+
+
+def _generic_join_integrity_rows(
+    *,
+    closed_rows: list[dict[str, Any]],
+    candidate_rows: list[dict[str, Any]],
+    filter_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    candidates = {row.get("candidate_id") for row in candidate_rows}
+    filters = {row.get("candidate_id") for row in filter_rows}
+    missing_candidate = sum(1 for row in closed_rows if row.get("candidate_id") not in candidates)
+    missing_filter = sum(1 for row in closed_rows if row.get("candidate_id") not in filters)
+    missing_trade = sum(1 for row in closed_rows if not row.get("trade_id"))
+    missing_execution = sum(1 for row in closed_rows if not row.get("execution_id"))
+    return [
+        {
+            "scope": "manifest_closed_trades",
+            "selected_count": len(filter_rows),
+            "executed_count": len(closed_rows),
+            "closed_count": len(closed_rows),
+            "selected_without_closed_count": max(0, len([row for row in filter_rows if row.get("formal_approved")]) - len(closed_rows)),
+            "missing_trade_id_count": missing_trade,
+            "missing_execution_id_count": missing_execution,
+            "missing_execution_row_count": missing_candidate + missing_filter,
+            "join_key_mismatch_count": missing_candidate + missing_filter,
+            "proposal_only_unexecuted_count": 0,
+            "diagnostic_only_count": len([row for row in filter_rows if not row.get("formal_approved")]),
+            "invalid_for_robustness_count": sum(1 for row in closed_rows if row.get("invalid_for_robustness")),
+            "performance_includes_unclosed_rows": False,
+            "fix_required": bool(missing_trade or missing_execution or missing_candidate or missing_filter),
+            "notes": "manifest-driven closed trades trace to candidate/filter rows",
+        }
+    ]
+
+
+def _generic_proposal_boundary_rows(
+    *,
+    closed_rows: list[dict[str, Any]],
+    candidate_rows: list[dict[str, Any]],
+    filter_rows: list[dict[str, Any]],
+    diagnostic_rows: list[dict[str, Any]],
+    summary_rows: list[dict[str, Any]],
+    robustness_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    non_closed = [*candidate_rows, *filter_rows, *diagnostic_rows, *summary_rows, *robustness_rows]
+    bad_non_closed = [
+        row
+        for row in non_closed
+        if row.get("row_type") != "closed_trade"
+        and (row.get("eligible_for_performance") is True or row.get("closed_trade") is True)
+    ]
+    bad_closed = [row for row in closed_rows if row.get("row_type") != "closed_trade" or not row.get("closed_trade")]
+    summary_with_net = [row for row in summary_rows if row.get("net_R") is not None]
+    return [
+        _audit_row("performance_metrics_from_closed_trade_only", not bad_closed, len(bad_closed), "closed_trade_rows must contain only closed_trade rows"),
+        _audit_row("proposal_diagnostic_summary_rows_excluded", not bad_non_closed, len(bad_non_closed), "non-closed artifacts are not eligible for performance"),
+        _audit_row("summary_rows_do_not_contain_trade_pnl", not summary_with_net, len(summary_with_net), "summary rows can report aggregates but not row-level net_R"),
+    ]
+
+
+def _regression_baseline_rows(artifact_paths: dict[str, Path]) -> list[dict[str, Any]]:
+    path = artifact_paths.get("regression_baseline")
+    passed = bool(path and path.exists())
+    return [_audit_row("regression_baseline_present", passed, 0 if passed else 1, "regression baseline artifact is required")]
+
+
+def _robustness_gate_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    robustness_types = {row.get("robustness_type") for row in rows}
+    required = {"walk_forward", "regime_split", "exposure"}
+    missing = sorted(required - robustness_types)
+    return [_audit_row("robustness_exposure_restriction_present", not missing, len(missing), f"missing robustness types: {missing}")]
+
+
+def _audit_row(check_name: str, passed: bool, affected_rows: int, details: str) -> dict[str, Any]:
+    return {
+        "check_name": check_name,
+        "passed": passed,
+        "affected_rows": affected_rows,
+        "blocking": not passed,
+        "details": details,
+    }
 
 
 def _join_integrity_rows(
@@ -396,14 +645,13 @@ def _report(result: FullPipelineAuditResult) -> str:
 
 def _decision_text(decision: str) -> str:
     return {
-        "A": "Full pipeline audit passed，可以进入 PR 11H robustness。",
-        "B": "Audit passed with non-blocking warnings，可以进入 PR 11H，但 warnings 必须带入。",
-        "C": "Audit failed due to execution identity / lineage，继续 PR 11G-QA-fix。",
-        "D": "Audit failed due to no-lookahead unverifiable rows，继续 PR 11G-QA-fix。",
-        "E": "Audit failed due to proposal/diagnostic rows entering performance，继续 PR 11G-QA-fix。",
-        "F": "Audit failed due to pipeline-wide code logic risks，继续 PR 11G-QA-fix。",
+        "A": "Full pipeline audit passed; eligible for the next robustness review.",
+        "B": "Audit passed with non-blocking warnings; carry warnings into the next review.",
+        "C": "Audit failed due to execution identity / lineage.",
+        "D": "Audit failed due to unverifiable no-lookahead rows.",
+        "E": "Audit failed because proposal/diagnostic rows entered performance.",
+        "F": "Audit failed due to pipeline-wide code logic risks.",
     }[decision]
-
 
 def _combo_rows_path(artifact_dir: Path) -> Path:
     local = artifact_dir / "lr_combined_combo_rows.jsonl"

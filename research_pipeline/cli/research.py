@@ -31,9 +31,27 @@ from research_pipeline.runners.sizing_diagnostics import build_sizing_diagnostic
 from research_pipeline.runners.smoke_plan import build_smoke_plan
 from research_pipeline.runners.stage7_smoke_backtest import run_stage7_smoke_backtest
 from research_pipeline.runners.strategy_regression_check import run_strategy_regression_check
+from research_pipeline.runners.strategy_research_validation import run_strategy_research_validation
+from research_pipeline.runners.strategy_expansion_diagnostics import run_strategy_expansion_diagnostics
 from research_pipeline.runners.strategy_summary import build_strategy_summary
+from research_pipeline.runners.strategy_dry_run import run_strategy_dry_run
+from research_pipeline.runners.tc_family_trade_count_expansion import run_tc_family_trade_count_expansion
+from research_pipeline.runners.tc_family_profit_execution_optimization import (
+    run_tc_family_profit_execution_optimization,
+)
+from research_pipeline.runners.tc_family_cost_aware_exit_target import (
+    run_tc_family_cost_aware_exit_target,
+)
+from research_pipeline.runners.tc_family_cost_aware_refinement_with_trend_state import (
+    run_tc_family_cost_aware_refinement_with_trend_state,
+)
+from research_pipeline.runners.tc_family_final_regime_aware_refinement import (
+    run_tc_family_final_regime_aware_refinement,
+)
 from research_pipeline.registry.strategy_registry import default_strategy_registry
 from research_pipeline.runners.validate_artifacts import validate_artifact_index
+from trading_system.config import load_backtest_preset
+from trading_system.data.history import DuckDbCandleRepository
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -152,6 +170,86 @@ def main(argv: list[str] | None = None) -> int:
     list_runs.add_argument("--registry", required=True)
 
     subparsers.add_parser("list-strategies")
+
+    strategy_dry_run = subparsers.add_parser("strategy-dry-run")
+    strategy_dry_run.add_argument("--strategy", required=True)
+    strategy_dry_run.add_argument("--dataset-window", default="dry_run_fixture")
+    strategy_dry_run.add_argument("--output-dir")
+    strategy_dry_run.add_argument("--format", choices=("json", "markdown"), default="json")
+
+    strategy_research_validation = subparsers.add_parser("strategy-research-validation")
+    strategy_research_validation.add_argument("--strategy", required=True)
+    strategy_research_validation.add_argument("--preset", required=True)
+    strategy_research_validation.add_argument("--db", required=True)
+    strategy_research_validation.add_argument("--dataset-window", required=True)
+    strategy_research_validation.add_argument("--output-root")
+    strategy_research_validation.add_argument("--cost-tier", action="append", default=None)
+    strategy_research_validation.add_argument("--max-entry-windows", type=int)
+    strategy_research_validation.add_argument("--allow-expansion", action="store_true")
+    strategy_research_validation.add_argument("--force", action="store_true")
+    strategy_research_validation.add_argument("--format", choices=("json", "markdown"), default="json")
+
+    strategy_expansion_diagnostics = subparsers.add_parser("strategy-expansion-diagnostics")
+    strategy_expansion_diagnostics.add_argument("--strategy", required=True)
+    strategy_expansion_diagnostics.add_argument("--preset", required=True)
+    strategy_expansion_diagnostics.add_argument("--db", required=True)
+    strategy_expansion_diagnostics.add_argument("--dataset-window", required=True)
+    strategy_expansion_diagnostics.add_argument("--output-root")
+    strategy_expansion_diagnostics.add_argument("--max-entry-windows", type=int)
+    strategy_expansion_diagnostics.add_argument("--run-top-variants", action="store_true")
+    strategy_expansion_diagnostics.add_argument("--cost-tier", action="append", default=None)
+    strategy_expansion_diagnostics.add_argument("--baseline-artifact-dir")
+    strategy_expansion_diagnostics.add_argument("--reuse-baseline", action="store_true")
+    strategy_expansion_diagnostics.add_argument("--variant-only", action="store_true")
+    strategy_expansion_diagnostics.add_argument("--variant", action="append", default=None)
+    strategy_expansion_diagnostics.add_argument("--force", action="store_true")
+    strategy_expansion_diagnostics.add_argument("--format", choices=("json", "markdown"), default="json")
+
+    tc_family_expansion = subparsers.add_parser("tc-family-trade-count-expansion")
+    tc_family_expansion.add_argument("--preset", required=True)
+    tc_family_expansion.add_argument("--db", required=True)
+    tc_family_expansion.add_argument("--dataset-window", required=True)
+    tc_family_expansion.add_argument("--output-root")
+    tc_family_expansion.add_argument("--max-entry-windows", type=int)
+    tc_family_expansion.add_argument("--cost-tier", action="append", default=None)
+    tc_family_expansion.add_argument("--chunk-size", type=int, default=20)
+    tc_family_expansion.add_argument("--format", choices=("json", "markdown"), default="json")
+
+    tc_family_profit = subparsers.add_parser("tc-family-profit-execution-optimization")
+    tc_family_profit.add_argument("--preset", required=True)
+    tc_family_profit.add_argument("--db", required=True)
+    tc_family_profit.add_argument("--dataset-window", required=True)
+    tc_family_profit.add_argument("--baseline-run-root", required=True)
+    tc_family_profit.add_argument("--output-root")
+    tc_family_profit.add_argument("--cost-tier", action="append", default=None)
+    tc_family_profit.add_argument("--format", choices=("json", "markdown"), default="json")
+
+    tc_family_cost_exit = subparsers.add_parser("tc-family-cost-aware-exit-target")
+    tc_family_cost_exit.add_argument("--preset", required=True)
+    tc_family_cost_exit.add_argument("--db", required=True)
+    tc_family_cost_exit.add_argument("--dataset-window", required=True)
+    tc_family_cost_exit.add_argument("--baseline-run-root", required=True)
+    tc_family_cost_exit.add_argument("--output-root")
+    tc_family_cost_exit.add_argument("--cost-tier", action="append", default=None)
+    tc_family_cost_exit.add_argument("--format", choices=("json", "markdown"), default="json")
+
+    tc_family_cost_refinement = subparsers.add_parser("tc-family-cost-aware-refinement-with-trend-state")
+    tc_family_cost_refinement.add_argument("--preset", required=True)
+    tc_family_cost_refinement.add_argument("--db", required=True)
+    tc_family_cost_refinement.add_argument("--dataset-window", required=True)
+    tc_family_cost_refinement.add_argument("--baseline-run-root", required=True)
+    tc_family_cost_refinement.add_argument("--output-root")
+    tc_family_cost_refinement.add_argument("--cost-tier", action="append", default=None)
+    tc_family_cost_refinement.add_argument("--format", choices=("json", "markdown"), default="json")
+
+    tc_family_final_regime = subparsers.add_parser("tc-family-final-regime-aware-refinement")
+    tc_family_final_regime.add_argument("--preset", required=True)
+    tc_family_final_regime.add_argument("--db", required=True)
+    tc_family_final_regime.add_argument("--dataset-window", required=True)
+    tc_family_final_regime.add_argument("--baseline-run-root", required=True)
+    tc_family_final_regime.add_argument("--output-root")
+    tc_family_final_regime.add_argument("--cost-tier", action="append", default=None)
+    tc_family_final_regime.add_argument("--format", choices=("json", "markdown"), default="json")
 
     strategy_summary = subparsers.add_parser("strategy-summary")
     strategy_summary.add_argument("--strategy", required=True)
@@ -440,6 +538,175 @@ def main(argv: list[str] | None = None) -> int:
                 sort_keys=True,
             )
         )
+        return 0
+    if args.command == "strategy-dry-run":
+        result = run_strategy_dry_run(
+            strategy=args.strategy,
+            dataset_window=args.dataset_window,
+            output_dir=Path(args.output_dir) if args.output_dir else None,
+        )
+        if args.format == "markdown":
+            print((Path(args.output_dir) / "run_manifest.md").read_text(encoding="utf-8") if args.output_dir else json.dumps(result.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(result.as_json())
+        return 0
+    if args.command == "strategy-research-validation":
+        preset = load_backtest_preset(args.preset)
+        repository = DuckDbCandleRepository(Path(args.db))
+        output_root = (
+            Path(args.output_root)
+            if args.output_root
+            else Path("storage") / "research_runs" / args.strategy / "research_validation"
+        )
+        result = run_strategy_research_validation(
+            strategy=args.strategy,
+            repository=repository,
+            preset=preset,
+            dataset_window=args.dataset_window,
+            output_root=output_root,
+            cost_tiers=tuple(args.cost_tier or ("base", "stress", "harsh")),
+            max_entry_windows=args.max_entry_windows,
+            allow_expansion=args.allow_expansion,
+            force=args.force,
+        )
+        if args.format == "markdown":
+            print((Path(result.run_root) / "strategy_research_validation_report.md").read_text(encoding="utf-8"))
+        else:
+            print(result.as_json())
+        return 0
+    if args.command == "strategy-expansion-diagnostics":
+        preset = load_backtest_preset(args.preset)
+        repository = DuckDbCandleRepository(Path(args.db))
+        output_root = (
+            Path(args.output_root)
+            if args.output_root
+            else Path("storage") / "research_runs" / args.strategy / "expansion_diagnostics"
+        )
+        result = run_strategy_expansion_diagnostics(
+            strategy=args.strategy,
+            repository=repository,
+            preset=preset,
+            dataset_window=args.dataset_window,
+            output_root=output_root,
+            max_entry_windows=args.max_entry_windows,
+            run_top_variants=args.run_top_variants,
+            cost_tiers=tuple(args.cost_tier or ("base",)),
+            baseline_artifact_dir=Path(args.baseline_artifact_dir) if args.baseline_artifact_dir else None,
+            reuse_baseline=args.reuse_baseline,
+            variant_only=args.variant_only,
+            variants=tuple(args.variant or ()),
+            force=args.force,
+        )
+        if args.format == "markdown":
+            print((Path(result.run_root) / "strategy_expansion_diagnostics_report.md").read_text(encoding="utf-8"))
+        else:
+            print(result.as_json())
+        return 0
+    if args.command == "tc-family-trade-count-expansion":
+        preset = load_backtest_preset(args.preset)
+        repository = DuckDbCandleRepository(Path(args.db))
+        output_root = (
+            Path(args.output_root)
+            if args.output_root
+            else Path("storage") / "research_runs" / "trend_continuation_family" / "trade_count_variant_expansion"
+        )
+        result = run_tc_family_trade_count_expansion(
+            repository=repository,
+            preset=preset,
+            dataset_window=args.dataset_window,
+            output_root=output_root,
+            max_entry_windows=args.max_entry_windows,
+            cost_tiers=tuple(args.cost_tier or ("base", "stress", "harsh")),
+            chunk_size=args.chunk_size,
+        )
+        if args.format == "markdown":
+            print(Path(result.report_path).read_text(encoding="utf-8"))
+        else:
+            print(result.as_json())
+        return 0
+    if args.command == "tc-family-profit-execution-optimization":
+        preset = load_backtest_preset(args.preset)
+        repository = DuckDbCandleRepository(Path(args.db))
+        output_root = (
+            Path(args.output_root)
+            if args.output_root
+            else Path("storage") / "research_runs" / "trend_continuation_family" / "profit_execution_optimization"
+        )
+        result = run_tc_family_profit_execution_optimization(
+            repository=repository,
+            preset=preset,
+            dataset_window=args.dataset_window,
+            baseline_run_root=Path(args.baseline_run_root),
+            output_root=output_root,
+            cost_tiers=tuple(args.cost_tier or ("base", "stress", "harsh")),
+        )
+        if args.format == "markdown":
+            print(Path(result.report_path).read_text(encoding="utf-8"))
+        else:
+            print(result.as_json())
+        return 0
+    if args.command == "tc-family-cost-aware-exit-target":
+        preset = load_backtest_preset(args.preset)
+        repository = DuckDbCandleRepository(Path(args.db))
+        output_root = (
+            Path(args.output_root)
+            if args.output_root
+            else Path("storage") / "research_runs" / "trend_continuation_family" / "cost_aware_exit_target"
+        )
+        result = run_tc_family_cost_aware_exit_target(
+            repository=repository,
+            preset=preset,
+            dataset_window=args.dataset_window,
+            baseline_run_root=Path(args.baseline_run_root),
+            output_root=output_root,
+            cost_tiers=tuple(args.cost_tier or ("base", "stress", "harsh")),
+        )
+        if args.format == "markdown":
+            print(Path(result.report_path).read_text(encoding="utf-8"))
+        else:
+            print(result.as_json())
+        return 0
+    if args.command == "tc-family-cost-aware-refinement-with-trend-state":
+        preset = load_backtest_preset(args.preset)
+        repository = DuckDbCandleRepository(Path(args.db))
+        output_root = (
+            Path(args.output_root)
+            if args.output_root
+            else Path("storage") / "research_runs" / "trend_continuation_family" / "cost_aware_refinement_with_trend_state"
+        )
+        result = run_tc_family_cost_aware_refinement_with_trend_state(
+            repository=repository,
+            preset=preset,
+            dataset_window=args.dataset_window,
+            baseline_run_root=Path(args.baseline_run_root),
+            output_root=output_root,
+            cost_tiers=tuple(args.cost_tier or ("base", "stress", "harsh")),
+        )
+        if args.format == "markdown":
+            print(Path(result.report_path).read_text(encoding="utf-8"))
+        else:
+            print(result.as_json())
+        return 0
+    if args.command == "tc-family-final-regime-aware-refinement":
+        preset = load_backtest_preset(args.preset)
+        repository = DuckDbCandleRepository(Path(args.db))
+        output_root = (
+            Path(args.output_root)
+            if args.output_root
+            else Path("storage") / "research_runs" / "trend_continuation_family" / "final_regime_aware_refinement"
+        )
+        result = run_tc_family_final_regime_aware_refinement(
+            repository=repository,
+            preset=preset,
+            dataset_window=args.dataset_window,
+            baseline_run_root=Path(args.baseline_run_root),
+            output_root=output_root,
+            cost_tiers=tuple(args.cost_tier or ("base", "stress", "harsh")),
+        )
+        if args.format == "markdown":
+            print(Path(result.report_path).read_text(encoding="utf-8"))
+        else:
+            print(result.as_json())
         return 0
     if args.command == "strategy-summary":
         summary = build_strategy_summary(args.strategy, summary_dir=Path(args.summary_dir))
