@@ -1,0 +1,67 @@
+{
+  "delete_candidates": [
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_partial_capture_v1",
+      "reason": "failed_variant_intermediate",
+      "size_mb": 28.29
+    },
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_momentum_failure_exit_v1",
+      "reason": "failed_variant_intermediate",
+      "size_mb": 28.28
+    },
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\final_regime_aware_refinement\\runs\\20260607T172428Z_bb3914fa269c\\variants\\bp_shallow_regime_diagnostic_no_filter_v1",
+      "reason": "duplicate_replay",
+      "size_mb": 27.32
+    },
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\final_regime_aware_refinement\\runs\\20260607T172428Z_bb3914fa269c\\variants\\bp_shallow_regime_adaptive_exit_v1",
+      "reason": "failed_variant_intermediate",
+      "size_mb": 27.29
+    },
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\final_regime_aware_refinement\\runs\\20260607T172428Z_bb3914fa269c\\variants\\bp_shallow_regime_cost_gate_v1",
+      "reason": "failed_variant_intermediate",
+      "size_mb": 26.28
+    }
+  ],
+  "dry_run": true,
+  "estimated_release_mb": 137.46,
+  "generated_at": "2026-06-08T07:12:02.638951+00:00",
+  "protected_path_check": "passed; no delete candidate contains best v3, LR final evidence, shared cache, or generic Research Pipeline code",
+  "protected_paths": [
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3",
+      "reason": "best_snapshot_required"
+    },
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\closed_trade_rows.jsonl",
+      "reason": "metric_recompute_required"
+    },
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\full_audit",
+      "reason": "audit_required"
+    },
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\trend_state_lineage_diagnostics.json",
+      "reason": "no_lookahead_lineage_required"
+    },
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\regression_baseline.json",
+      "reason": "regression_baseline_required"
+    },
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\variants\\bp_shallow_cost_aware_admission_v3\\run_manifest.json",
+      "reason": "manifest_required"
+    },
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\cost_aware_refinement_with_trend_state\\runs\\20260605T173718Z_61df2053b9f1\\tc_family_cost_aware_refinement_with_trend_state_report.md",
+      "reason": "final_report_required"
+    },
+    {
+      "path": "storage\\research_runs\\trend_continuation_family\\final_regime_aware_refinement\\runs\\20260607T172428Z_bb3914fa269c\\tc_family_final_regime_aware_refinement_report.md",
+      "reason": "final_report_required"
+    }
+  ]
+}
