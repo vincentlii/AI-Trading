@@ -28,6 +28,11 @@ class CorePolicy:
     stop_buffer_atr: float = 0.15
     min_gross_rr: float = 1.20
     max_zones_per_seed: int = 12
+    mrt_squeeze_filter_enabled: bool = True
+    zone_first_touch_weight: float = 0.50
+    breakout_absorption_volume_ratio: float = 3.0
+    breakout_absorption_body_ratio_max: float = 0.40
+    pullback_no_supply_volume_ratio_max: float = 0.80
 
 
 @dataclass(frozen=True)
@@ -241,7 +246,7 @@ def evaluate_breakout_pullback_core_diagnostics(
         atr = _average([float(getattr(candle, "high")) - float(getattr(candle, "low")) for candle in confirmed[-20:]])
     policy = core_policy_from_parameters(parameters)
     evaluation = evaluate_trend_continuation_core(confirmed, atr=atr, policy=policy)
-    selected = _select_variant_events(evaluation.selected_candidates, parameters)
+    selected = _select_variant_events(evaluation.selected_candidates, parameters, regime)
     event_rows = [event.as_dict() for event in evaluation.events]
     best = selected[0] if selected else max(evaluation.events, key=_rank_key, default=None)
     metrics = {} if best is None else best.as_dict()
@@ -286,18 +291,33 @@ def evaluate_breakout_pullback_core_diagnostics(
 
 def core_policy_from_parameters(parameters: object | None) -> CorePolicy:
     variant = str(getattr(parameters, "bp_variant_policy", "lifecycle_level_zone") or "lifecycle_level_zone")
+    
+    # Extract configurable parameters with defaults
+    kwargs = {
+        "mrt_squeeze_filter_enabled": getattr(parameters, "mrt_squeeze_filter_enabled", True),
+        "zone_first_touch_weight": float(getattr(parameters, "zone_first_touch_weight", 0.50)),
+        "breakout_absorption_volume_ratio": float(getattr(parameters, "breakout_absorption_volume_ratio", 3.0)),
+        "breakout_absorption_body_ratio_max": float(getattr(parameters, "breakout_absorption_body_ratio_max", 0.40)),
+        "pullback_no_supply_volume_ratio_max": float(getattr(parameters, "pullback_no_supply_volume_ratio_max", 0.80)),
+    }
+
     if variant == "lifecycle_boundary_midpoint":
-        return CorePolicy(pullback_zone_tolerance_atr=0.50, max_structural_stop_atr=3.0)
+        return CorePolicy(pullback_zone_tolerance_atr=0.50, max_structural_stop_atr=3.0, **kwargs)
     if variant == "lifecycle_shallow_momentum":
-        return CorePolicy(pullback_observation_bars=8, relaunch_observation_bars=4, pullback_zone_tolerance_atr=0.20)
+        return CorePolicy(pullback_observation_bars=8, relaunch_observation_bars=4, pullback_zone_tolerance_atr=0.20, **kwargs)
     if variant == "lifecycle_weak_break_watch":
-        return CorePolicy(accepted_breakout_strength_min=0.70, pullback_observation_bars=12, relaunch_observation_bars=6)
-    return CorePolicy()
+        return CorePolicy(accepted_breakout_strength_min=0.70, pullback_observation_bars=12, relaunch_observation_bars=6, **kwargs)
+    return CorePolicy(**kwargs)
 
 
-def _select_variant_events(events: Sequence[BreakoutLifecycleEvent], parameters: object | None) -> tuple[BreakoutLifecycleEvent, ...]:
+def _select_variant_events(events: Sequence[BreakoutLifecycleEvent], parameters: object | None, regime: object | None = None) -> tuple[BreakoutLifecycleEvent, ...]:
     variant = str(getattr(parameters, "bp_variant_policy", "lifecycle_level_zone") or "lifecycle_level_zone")
     allowed = list(events)
+
+    mrt_squeeze_filter_enabled = getattr(parameters, "mrt_squeeze_filter_enabled", True)
+    if mrt_squeeze_filter_enabled and regime is not None:
+        if getattr(regime, "status", "") == "MEAN_REVERTING_TRANSITION" and not getattr(regime, "ttm_squeeze", False):
+            allowed = [e for e in allowed if e.bp_subtype != "shallow_pullback_momentum"]
     if variant == "lifecycle_boundary_midpoint":
         allowed = [event for event in allowed if event.bp_subtype in {"boundary_retest_continuation", "midpoint_retest_continuation"}]
     elif variant == "lifecycle_shallow_momentum":
@@ -370,7 +390,8 @@ def discover_structure_zones(
         level_type = "local_pivot_cluster" if len(group) > 1 else level_types[0]
         confirmed_time = int(getattr(rows[last_touch_index], "timestamp_ms"))
         level_id = _stable_id(level_type, round(lower, 8), round(upper, 8), confirmed_time)
-        structure_score = min(1.0, 0.25 + touch_count * 0.08 + rejection_count * 0.05)
+        first_touch_bonus = policy.zone_first_touch_weight if touch_count <= 1 else 0.0
+        structure_score = min(1.0, 0.25 + touch_count * 0.08 + rejection_count * 0.05 + first_touch_bonus)
         zones.append(
             StructureZone(
                 level_id=level_id,
@@ -446,6 +467,8 @@ def _evaluate_seed(
     avg_volume = _average([float(getattr(c, "volume", 0.0)) for c in prior])
     volume = float(getattr(breakout, "volume", 0.0))
     breakout_rvol = volume / avg_volume if avg_volume > 0 else 0.0
+    if breakout_rvol >= policy.breakout_absorption_volume_ratio and body_pct <= policy.breakout_absorption_body_ratio_max:
+        return None
     compression = _compression_context(prior)
     distance_atr = distance / atr
     strength = _average(
@@ -705,6 +728,10 @@ def _observe_pullback(candles: Sequence[object], *, start_index: int, direction:
     target_space_score = min(1.0, max(0.0, depth_atr / 0.8))
     health = _average([depth_score, volume_score, range_score, body_score, level_hold_score, time_decay_score, no_impulsive_score, target_space_score])
     health_class = "healthy" if health >= 0.70 else "acceptable" if health >= 0.50 else "weak_but_watch" if health >= 0.35 and not invalidated else "failed"
+    
+    if volume_ratio > policy.pullback_no_supply_volume_ratio_max:
+        health_class = "failed"
+        
     midpoint = zone.zone_mid
     zone_type = "level_retest" if touched else "midpoint_retest" if abs(extreme - midpoint) <= atr * policy.pullback_zone_tolerance_atr else "shallow_pullback"
     return {

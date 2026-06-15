@@ -1,0 +1,39 @@
+{
+  "auto_apply": false,
+  "base_config_fingerprint": "0799315c73f1281ffb556c85cada43814e1297966f7a56724a1ad691d2a6cc4f",
+  "base_config_version": "btc_eth_swap_proposal_v1",
+  "base_preset_path": "configs/presets/btc_eth_swap_proposal.toml",
+  "changes": [
+    {
+      "path": "execution.breakeven_after_mfe_r",
+      "before": 1.0,
+      "after": 0.75,
+      "reason": "1H macro trend validates earlier breakeven without sacrificing profitability."
+    },
+    {
+      "path": "execution.partial_take_profit_r",
+      "before": 1.0,
+      "after": 0.75,
+      "reason": "Must sync with breakeven_after_mfe_r to trigger true breakeven logic in execution engine."
+    },
+    {
+      "path": "execution.reversal_time_cut_bars",
+      "before": 8,
+      "after": 48,
+      "reason": "15m dynamic time cuts cause excessive premature stops. Giving the trade more room to breathe."
+    }
+  ],
+  "evidence": {
+    "window": "manual_review"
+  },
+  "expected_impact": "Profile C will see higher Win Rate and PF due to protected floating profits. Profile B will not be prematurely cut.",
+  "proposal_id": "tc_v1_exit_opt",
+  "risks": [
+    "Profile B might hit more full 1R stop losses."
+  ],
+  "source": "agent",
+  "title": "TC v1 Exit Optimization",
+  "validation_plan": [
+    "Run P4.5 proposal validation"
+  ]
+}

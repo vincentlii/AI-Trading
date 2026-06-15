@@ -1,20 +1,20 @@
-config_version = "btc_eth_swap_proposal_v1"
+config_version = "btc_eth_swap_lr_formal_v1"
 
 [include]
 assets = "configs/assets/btc_eth_swap.toml"
-risk = "configs/risk/default.toml"
+risk = "configs/risk/lr_risk.toml"
 costs = "configs/costs/crypto_swap_research.toml"
-strategy = "configs/strategies/trend_price_volume_swap_proposal.toml"
+strategy = "configs/strategies/trend_price_volume_lr_formal.toml"
 
 [scan]
-profile_keys = ["B", "C"]
+profile_keys = ["C"]
 
 [execution]
 initial_equity = 100000.0
 max_holding_bars = 20
 conservative_same_bar = true
 point_value = 1.0
-enable_advanced_exits = true
+enable_advanced_exits = false
 partial_take_profit_r = 1.0
 partial_take_profit_pct = 0.5
 move_stop_to_true_breakeven = true

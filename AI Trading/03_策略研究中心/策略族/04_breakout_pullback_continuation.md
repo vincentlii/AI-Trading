@@ -1,4 +1,4 @@
-﻿---
+---
 type: strategy-family
 strategy_family: breakout_pullback_continuation
 status: diagnostic_candidate_subtype_refactor
@@ -227,3 +227,29 @@ TC family best diagnostic snapshot 已固化：
 ## 2026-06-08 Codex Skills 同步口径
 
 `breakout_pullback` 当前仅保留 `bp_shallow_cost_aware_admission_v3` diagnostic snapshot。后续若做 simple baseline 对照或重新研究 BP shallow，必须走 `trading-system-research-pipeline-runner`、`trading-system-full-audit-gate-checker` 和 `trading-system-backtest-report-analyst`；不得继续局部调参、手工筛 regime 或把 diagnostic snapshot 写成 formal candidate。
+
+## 2026-06-13 TC Exit Counterfactual Diagnostic
+
+本轮专门针对 `bp_shallow_cost_aware_admission_v3` 中 396 笔 `time_exit` 且 `cost_tier == "harsh"` 的交易执行了**反事实延时持有诊断**。
+
+核心论点：“我们一直在优化信号，而没有真正优化持仓管理。”
+
+诊断结果：
+如果强制在 20h 的基础上继续持有 12h 到 72h：
+- **Original 20h Exit**: Avg R = 0.0175, Win Rate = 46.21%
+- **+12h (Total ~32h)**: Avg R = -0.1427 | Win Rate = 37.22% | Stop Rate = 9.62%
+- **+24h (Total ~44h)**: Avg R = -0.1603 | Win Rate = 37.47% | Stop Rate = 15.70%
+- **+48h (Total ~68h)**: Avg R = -0.1373 | Win Rate = 41.52% | Stop Rate = 23.04%
+- **+72h (Total ~92h)**: Avg R = -0.2018 | Win Rate = 40.76% | Stop Rate = 30.13%
+
+**结论：**
+1. 随着持有时间增加，原本 46% 的胜率稳步下跌至 37% 左右。
+2. 触发原始结构止损的概率从 0 稳步攀升至 30%。
+3. 平均 R 从微弱的正值迅速崩塌至深度负值 (-0.14R ~ -0.20R)。
+4. “死扛不走”策略严格降低了所有指标表现，说明行情在 20 根 bar 附近确实已经失去了原有动能，并不是“退出过早”。
+5. 因此，核心问题确实在于**“20根bar内跑出浮盈后，没能保全利润”**。
+
+**下一步：**
+研究重点正式从 “信号过滤 (Admission/Filtering)” 转向 “动态持仓管理 (Dynamic Exit Management)”，尤其是实现：
+- **True Breakeven**：在 MFE 达到 0.5R~0.75R 时，自动将止损上移至保本+覆盖滑点手续费的位置。
+- **Dynamic Time Cut**：在持有 8~10 bars 后，如果 MFE 仍低于 0.3R，则判定为动能失败，提前退出，不干等 20 bars。

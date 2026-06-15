@@ -38,7 +38,7 @@ def _event(**overrides):
         "pullback_observed": True,
         "pullback_health_class": "acceptable",
         "pullback_health_score": 0.62,
-        "pullback_zone_type": "shallow_pullback",
+        "pullback_zone_type": "level_retest",
         "pullback_end_time": 1_700_000_300_000,
         "relaunch_time": 1_700_000_360_000,
         "relaunch_close": 99.5,
@@ -70,52 +70,24 @@ def _event(**overrides):
 
 
 class TrendContinuationFamilyTests(unittest.TestCase):
-    def test_family_declares_exactly_three_bounded_variants(self) -> None:
+    def test_family_declares_exactly_one_bounded_variant(self) -> None:
         self.assertEqual(
             FAMILY_VARIANT_IDS,
             (
-                "ce_lifecycle_native_light_confirm_v1",
-                "ce_lifecycle_shallow_momentum_v1",
-                "bp_shallow_momentum_capped_risk_v3",
+                "bp_lifecycle_level_zone_v1",
             ),
         )
-        self.assertEqual(family_variant_setup(FAMILY_VARIANT_IDS[0]), "compression_expansion")
-        self.assertEqual(family_variant_setup(FAMILY_VARIANT_IDS[2]), "breakout_pullback")
+        self.assertEqual(family_variant_setup(FAMILY_VARIANT_IDS[0]), "breakout_pullback")
 
-    def test_ce_native_does_not_require_pullback_or_relaunch(self) -> None:
-        row = _event(
-            pullback_observed=False,
-            pullback_health_class="failed",
-            relaunch_time=None,
-            relaunch_close=None,
-            relaunch_quality_class="failed",
-            stop=None,
-            target=None,
-        )
-
-        selected = select_family_candidates((row,), "ce_lifecycle_native_light_confirm_v1")
-
-        self.assertEqual(len(selected), 1)
-        self.assertEqual(selected[0]["setup"], "compression_expansion")
-        self.assertEqual(selected[0]["entry_policy"], "light_confirmation")
-
-    def test_ce_shallow_requires_compression_context(self) -> None:
-        selected = select_family_candidates(
-            (_event(compression_context=False),),
-            "ce_lifecycle_shallow_momentum_v1",
-        )
-
-        self.assertEqual(selected, ())
-
-    def test_bp_shallow_keeps_setup_isolated_and_deduplicates_lifecycle_event(self) -> None:
+    def test_bp_keeps_setup_isolated_and_deduplicates_lifecycle_event(self) -> None:
         selected = select_family_candidates(
             (_event(event_key="ctx-1:event-1"), _event(event_key="ctx-2:event-1", timestamp_ms=1_700_000_700_000)),
-            "bp_shallow_momentum_capped_risk_v3",
+            "bp_lifecycle_level_zone_v1",
         )
 
         self.assertEqual(len(selected), 1)
         self.assertEqual(selected[0]["setup"], "breakout_pullback")
-        self.assertEqual(selected[0]["variant"], "bp_shallow_momentum_capped_risk_v3")
+        self.assertEqual(selected[0]["variant"], "bp_lifecycle_level_zone_v1")
         self.assertEqual(selected[0]["row_type"], "proposal_candidate")
 
     def test_compact_family_event_keeps_replay_fields_without_full_diagnostic_payload(self) -> None:
@@ -139,7 +111,7 @@ class TrendContinuationFamilyTests(unittest.TestCase):
                 _event(lifecycle_event_id="event-low", candidate_rank_score=0.4),
                 _event(lifecycle_event_id="event-high", candidate_rank_score=0.9),
             ),
-            "bp_shallow_momentum_capped_risk_v3",
+            "bp_lifecycle_level_zone_v1",
         )
 
         self.assertEqual(len(selected), 1)

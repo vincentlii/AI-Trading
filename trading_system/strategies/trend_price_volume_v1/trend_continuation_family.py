@@ -5,9 +5,7 @@ from hashlib import sha256
 
 
 FAMILY_VARIANT_IDS = (
-    "ce_lifecycle_native_light_confirm_v1",
-    "ce_lifecycle_shallow_momentum_v1",
-    "bp_shallow_momentum_capped_risk_v3",
+    "bp_lifecycle_level_zone_v1",
 )
 
 _COMPACT_EVENT_FIELDS = {
@@ -148,6 +146,16 @@ def _variant_eligible(event: Mapping[str, object], variant_id: str) -> bool:
     )
     if variant_id == "ce_lifecycle_shallow_momentum_v1":
         return bool(event.get("compression_context")) and shallow
+    if variant_id == "bp_lifecycle_level_zone_v1":
+        # The core BP level retest logic
+        return (
+            str(event.get("breakout_class") or "") in {"strong_breakout", "accepted_breakout"}
+            and str(event.get("pullback_zone_type") or "") in {"level_retest", "midpoint_retest"}
+            and str(event.get("pullback_health_class") or "") in {"healthy", "acceptable"}
+            and str(event.get("relaunch_quality_class") or "") in {"strong", "acceptable"}
+            and str(event.get("structural_stop_quality") or "") == "valid"
+            and str(event.get("target_quality_class") or "") in {"good", "acceptable"}
+        )
     return shallow
 
 

@@ -36,8 +36,11 @@ class PaperBrokerConfig:
     partial_take_profit_r: float = 1.0
     partial_take_profit_pct: float = 0.5
     move_stop_to_true_breakeven: bool = True
+    breakeven_after_mfe_r: float = 0.0
     chandelier_period: int = 22
     chandelier_atr_multiple: float = 4.0
+    reversal_time_cut_bars: int = 0
+    reversal_time_cut_min_mfe_r: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -445,8 +448,11 @@ def _to_backtest_config(config: PaperBrokerConfig) -> BacktestExecutionConfig:
         partial_take_profit_r=config.partial_take_profit_r,
         partial_take_profit_pct=config.partial_take_profit_pct,
         move_stop_to_true_breakeven=config.move_stop_to_true_breakeven,
+        breakeven_after_mfe_r=config.breakeven_after_mfe_r,
         chandelier_period=config.chandelier_period,
         chandelier_atr_multiple=config.chandelier_atr_multiple,
+        reversal_time_cut_bars=config.reversal_time_cut_bars,
+        reversal_time_cut_min_mfe_r=config.reversal_time_cut_min_mfe_r,
     )
 
 

@@ -1,0 +1,13 @@
+risk_pct = 0.005
+drawdown_level_1_pct = 0.02
+drawdown_level_1_risk_pct = 0.0035
+drawdown_level_2_pct = 0.04
+drawdown_level_2_risk_pct = 0.002
+hard_drawdown_stop_pct = 0.05
+daily_loss_limit_pct = 0.02
+min_stop_atr_multiple = 0.8
+max_stop_atr_multiple = 3.0
+max_single_notional_pct = 0.15
+max_total_gross_leverage = 1.0
+max_portfolio_heat_pct = 0.05
+min_liquidity_reversal_target_r = 1.5

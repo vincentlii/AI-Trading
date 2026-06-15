@@ -368,7 +368,7 @@ def _simulate_simple_fill(
             exit_price = intent.target_price
             exit_reason = "target"
         else:
-            if _should_time_cut_liquidity_reversal(
+            if _should_time_cut_momentum_failure(
                 intent=intent,
                 candles=candles[:index],
                 bar_index=index,
@@ -573,7 +573,7 @@ def _simulate_advanced_fill(
             remaining_quantity = 0.0
             break
 
-        if _should_time_cut_liquidity_reversal(
+        if _should_time_cut_momentum_failure(
             intent=intent,
             candles=tuple(seen_candles) + (candle,),
             bar_index=index,
@@ -844,15 +844,13 @@ def _stable_token(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
-def _should_time_cut_liquidity_reversal(
+def _should_time_cut_momentum_failure(
     *,
     intent: OrderIntent,
     candles: Sequence[object],
     bar_index: int,
     config: BacktestExecutionConfig,
 ) -> bool:
-    if intent.setup_type != "liquidity_reversal":
-        return False
     if config.reversal_time_cut_bars <= 0 or bar_index < config.reversal_time_cut_bars:
         return False
     if intent.stop_distance <= 0:

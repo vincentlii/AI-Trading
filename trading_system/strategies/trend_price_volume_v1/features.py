@@ -109,6 +109,11 @@ class StrategyParameters:
     bp_min_relaunch_score: float = 0.35
     bp_variant_policy: str = "level_retest"
     bp_subtype_focus: str = "any"
+    mrt_squeeze_filter_enabled: bool = True
+    zone_first_touch_weight: float = 0.50
+    breakout_absorption_volume_ratio: float = 3.0
+    breakout_absorption_body_ratio_max: float = 0.40
+    pullback_no_supply_volume_ratio_max: float = 0.80
     sweep_max_atr_multiple: float = 1.5
     sweep_wick_ratio_min: float = 0.25
     sweep_rvol_min: float = 1.5

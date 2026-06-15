@@ -1,0 +1,32 @@
+name = "trend_price_volume_tc"
+version = "v1"
+enabled = true
+enabled_setups = ["trend_continuation"]
+
+[profile_status]
+A = "diagnostic_only"
+B = "diagnostic_only"
+C = "proposal_enabled"
+
+[volume]
+baseline_mode = "tod_dow_log_ewma"
+log_transform = true
+half_life_days = 90
+half_life_candidates = [60, 90, 120, 150]
+bucket_keys = ["asset", "timeframe", "day_of_week", "utc_hour"]
+min_bucket_samples = 30
+fallback_mode = "rolling_ewma"
+epsilon = 1e-12
+
+[parameters.trend_continuation]
+breakout_buffer_atr = 0.5
+breakout_body_ratio_min = 0.7
+breakout_close_location_max = 0.2
+breakout_rvol_min = 2.0
+pullback_rvol_max = 0.8
+restart_rvol_min = 1.5
+
+[parameter_grid.trend_continuation]
+breakout_rvol_min = [1.6, 1.8, 2.0]
+pullback_rvol_max = [0.8, 0.9]
+restart_rvol_min = [1.3, 1.5, 1.8]
