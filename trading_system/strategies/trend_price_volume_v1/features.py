@@ -118,6 +118,8 @@ class StrategyParameters:
     sweep_wick_ratio_min: float = 0.25
     sweep_rvol_min: float = 1.5
     countertrend_sweep_rvol_min: float = 2.0
+    lr_target_r: float = 2.0
+    tc_target_r: float = 2.0
     reclaim_max_bars: int = 5
     reclaim_rvol_max: float = math.inf
     require_choch_for_eth_reversal: bool = False
@@ -1640,11 +1642,11 @@ def _detect_trend_continuation(
     if direction == "long":
         invalidation = min(float(pullback.low), prior_level) - atr
         entry_low, entry_high = _entry_zone(entry)
-        target = float(entry[-1].close) + abs(float(entry[-1].close) - invalidation) * 2.0
+        target = float(entry[-1].close) + abs(float(entry[-1].close) - invalidation) * params.tc_target_r
     else:
         invalidation = max(float(pullback.high), prior_level) + atr
         entry_low, entry_high = _entry_zone(entry)
-        target = float(entry[-1].close) - abs(invalidation - float(entry[-1].close)) * 2.0
+        target = float(entry[-1].close) - abs(invalidation - float(entry[-1].close)) * params.tc_target_r
 
     stages = diagnostics["stages"]
     metrics = diagnostics["metrics"]
@@ -1724,7 +1726,7 @@ def _detect_liquidity_reversal(
                 reclaim_bars = _bars_between(sweep, reclaim)
                 invalidation = _invalidation_level("long", sweep, atr, params)
                 entry_low, entry_high = _entry_zone(entry)
-                target = float(entry[-1].close) + abs(float(entry[-1].close) - invalidation) * 2.0
+                target = float(entry[-1].close) + abs(float(entry[-1].close) - invalidation) * params.lr_target_r
                 return PriceActionSetup(
                     setup_type="liquidity_reversal",
                     direction="long",
@@ -1777,7 +1779,7 @@ def _detect_liquidity_reversal(
                 reclaim_bars = _bars_between(sweep, reclaim)
                 invalidation = _invalidation_level("short", sweep, atr, params)
                 entry_low, entry_high = _entry_zone(entry)
-                target = float(entry[-1].close) - abs(invalidation - float(entry[-1].close)) * 2.0
+                target = float(entry[-1].close) - abs(invalidation - float(entry[-1].close)) * params.lr_target_r
                 return PriceActionSetup(
                     setup_type="liquidity_reversal",
                     direction="short",
