@@ -9,11 +9,18 @@ FINAL_BASELINE = ROOT / "storage" / "research_runs" / "liquidity_reversal" / "fi
 
 
 class LiquidityReversalFinalConfigTest(unittest.TestCase):
-    def test_final_config_matches_pr11h_fix_candidate(self) -> None:
+    def test_untrusted_candidate_is_stopped_after_causal_rebuild(self) -> None:
         text = FINAL_CONFIG.read_text(encoding="utf-8")
 
         self.assertIn("strategy: liquidity_reversal", text)
-        self.assertIn("formalized_candidate: restricted_variant_b", text)
+        self.assertIn("config_version: research_stopped_2026_06_21", text)
+        self.assertIn("status: research_stopped", text)
+        self.assertIn("stop_reason: no_robust_positive_execution_edge", text)
+        self.assertIn("holdout_accessed: false", text)
+        self.assertIn("formalized_candidate: none", text)
+        self.assertIn("historical_candidate: restricted_variant_b", text)
+        self.assertIn("live_trading_enabled: false", text)
+        self.assertEqual(text.count("enabled: true"), 0)
         self.assertIn("profile_scope: C_only", text)
         self.assertIn("diagnostic_profiles: [B]", text)
         self.assertIn("portfolio_heat_cap: 0.05", text)
@@ -23,7 +30,7 @@ class LiquidityReversalFinalConfigTest(unittest.TestCase):
         self.assertIn("pdh_pdl: diagnostic_only", text)
         self.assertIn("eqh_eql: diagnostic_only", text)
 
-    def test_final_regression_baseline_freezes_restricted_variant_b(self) -> None:
+    def test_historical_regression_baseline_remains_read_only(self) -> None:
         baseline = json.loads(FINAL_BASELINE.read_text(encoding="utf-8"))
 
         self.assertEqual(baseline["strategy"], "liquidity_reversal")

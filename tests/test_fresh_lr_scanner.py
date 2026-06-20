@@ -6,9 +6,17 @@ from trading_system.data.okx_cli import Candle
 from trading_system.diagnostics.fresh_lr_scanner import scan_fresh_liquidity_reversal
 
 
-def _candle(index: int, open_price: float, high: float, low: float, close: float, volume: float = 100.0) -> Candle:
+def _candle(
+    index: int,
+    open_price: float,
+    high: float,
+    low: float,
+    close: float,
+    volume: float = 100.0,
+    timeframe_minutes: int = 1,
+) -> Candle:
     return Candle(
-        timestamp_ms=1_700_000_000_000 + index * 60_000,
+        timestamp_ms=1_700_000_000_000 + index * timeframe_minutes * 60_000,
         open=open_price,
         high=high,
         low=low,
@@ -25,13 +33,19 @@ class FreshLiquidityReversalScannerTests(unittest.TestCase):
         repository = CandleRepository()
         preset = load_backtest_preset("configs/presets/btc_eth_swap_proposal.toml")
         structure = (
-            _candle(1, 100.0, 101.0, 99.0, 100.0),
-            _candle(2, 100.0, 102.0, 100.0, 101.0),
-            _candle(3, 101.0, 102.0, 98.0, 100.0),
-            _candle(4, 100.0, 103.0, 99.5, 101.5),
+            _candle(1, 100.0, 101.0, 99.0, 100.0, timeframe_minutes=60),
+            _candle(2, 100.0, 102.0, 100.0, 101.0, timeframe_minutes=60),
+            _candle(3, 101.0, 102.0, 98.0, 100.0, timeframe_minutes=60),
+            _candle(4, 100.0, 103.0, 99.5, 101.5, timeframe_minutes=60),
         )
-        entry = tuple(_candle(index, 101.0, 102.0, 100.0, 101.0) for index in range(1, 8))
-        trend = tuple(_candle(index, 90.0, 91.0, 89.0, 90.5) for index in range(1, 230))
+        entry = tuple(
+            _candle(index, 101.0, 102.0, 100.0, 101.0, timeframe_minutes=15)
+            for index in range(1, 29)
+        )
+        trend = tuple(
+            _candle(index, 90.0, 91.0, 89.0, 90.5, timeframe_minutes=240)
+            for index in range(1, 230)
+        )
         repository.save_many("BTC-USDT-SWAP", "15m", entry, inst_type="SWAP")
         repository.save_many("BTC-USDT-SWAP", "1H", structure, inst_type="SWAP")
         repository.save_many("BTC-USDT-SWAP", "4H", trend, inst_type="SWAP")
@@ -54,7 +68,9 @@ class FreshLiquidityReversalScannerTests(unittest.TestCase):
         candidate = result.candidate_rows[0]
         self.assertEqual(candidate["event_state"], "emitted")
         self.assertEqual(candidate["structure_level_source"], "rolling_range")
-        self.assertEqual(candidate["entry_time"], 1_700_000_000_000 + 5 * 60_000)
+        self.assertEqual(candidate["signal_time"], 1_700_000_000_000 + 5 * 60 * 60_000)
+        self.assertEqual(candidate["entry_time"], 1_700_000_000_000 + 21 * 15 * 60_000)
+        self.assertLess(candidate["signal_time"], candidate["entry_time"])
         self.assertIn("choch_direction", candidate)
         self.assertIn("trend_state", candidate)
         self.assertIn("sweep_rvol_tier", candidate)

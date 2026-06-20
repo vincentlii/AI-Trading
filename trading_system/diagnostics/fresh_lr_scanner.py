@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import csv
 import json
+from bisect import bisect_right
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -41,6 +42,10 @@ class StructureLevel:
     liquidity_score: float
     state: str
     diagnostic_only: bool = False
+    confirmed_time: int = 0
+    session_name: str = ""
+    session_start_time: int | None = None
+    session_end_time: int | None = None
 
 
 def scan_fresh_liquidity_reversal(
@@ -49,6 +54,9 @@ def scan_fresh_liquidity_reversal(
     preset: BacktestPresetConfig,
     max_entry_windows: int | None,
     reclaim_windows: Sequence[int] = (3, 5, 8),
+    start_time_ms: int | None = None,
+    end_time_ms: int | None = None,
+    entry_timeframe_override: str | None = None,
 ) -> FreshLRScannerResult:
     max_reclaim = max(reclaim_windows) if reclaim_windows else 3
     event_rows: list[dict[str, object]] = []
@@ -61,26 +69,40 @@ def scan_fresh_liquidity_reversal(
         asset = target.canonical_symbol.split("/", 1)[0].upper()
         for profile_key in preset.scan.profile_keys:
             profile = get_profile(profile_key)
-            entry = _load_timeframe(repository, target, profile.entry_timeframe)
+            execution_timeframe = entry_timeframe_override or profile.entry_timeframe
+            entry = _load_timeframe(repository, target, execution_timeframe)
             structure = _load_timeframe(repository, target, profile.structure_timeframe)
             trend = _load_timeframe(repository, target, profile.trend_timeframe)
             if len(entry) < 2 or len(structure) < 3:
                 continue
+            entry_timestamps = tuple(int(getattr(candle, "timestamp_ms")) for candle in entry)
+            structure_timestamps = tuple(int(getattr(candle, "timestamp_ms")) for candle in structure)
+            trend_confirmed_timestamps = tuple(
+                _bar_confirmed_time(candle, profile.trend_timeframe)
+                for candle in trend
+            )
+            volume_evidence_cache: dict[tuple[int, str], Mapping[str, object]] = {}
+            trend_context_cache: dict[int, object] = {}
             scan_start_ts = int(getattr(entry[0], "timestamp_ms"))
             if max_entry_windows is not None and max_entry_windows > 0:
                 scan_start_ts = int(getattr(entry[max(0, len(entry) - max_entry_windows)], "timestamp_ms"))
             scan_end_ts = int(getattr(entry[-1], "timestamp_ms"))
+            if start_time_ms is not None:
+                scan_start_ts = max(scan_start_ts, int(start_time_ms))
+            if end_time_ms is not None:
+                scan_end_ts = min(scan_end_ts, int(end_time_ms))
 
             for index in range(2, len(structure)):
                 sweep = structure[index]
-                sweep_ts = int(getattr(sweep, "timestamp_ms"))
+                sweep_bar_ts = int(getattr(sweep, "timestamp_ms"))
+                sweep_ts = _bar_confirmed_time(sweep, profile.structure_timeframe)
                 if sweep_ts < scan_start_ts or sweep_ts > scan_end_ts:
                     continue
                 prior_start = max(0, index - _level_lookback_bars(profile.key))
                 prior = tuple(structure[prior_start:index])
                 if not prior:
                     continue
-                atr = _atr(structure[: index + 1])
+                atr = _atr(structure[max(0, index - 14) : index + 1])
                 levels_by_direction = {
                     direction: _active_scanner_levels(_structure_levels(prior=prior, current=sweep, profile_key=profile.key, direction=direction, atr=atr))
                     for direction in ("long", "short")
@@ -116,6 +138,7 @@ def scan_fresh_liquidity_reversal(
                             direction=direction,
                             max_reclaim=max_reclaim,
                             reclaim_windows=tuple(reclaim_windows),
+                            structure_timeframe=profile.structure_timeframe,
                         )
                         for window, reclaimed in lifecycle["reclaimed_within"].items():
                             if reclaimed:
@@ -131,7 +154,11 @@ def scan_fresh_liquidity_reversal(
                             summary_groups[key]["signal_events_count"] += 1
 
                         event_id = _event_id(target.inst_id, profile.key, direction, level_source, level_type, level, sweep_ts, lifecycle["reclaim_ts"])
-                        entry_candle = _next_entry(entry, lifecycle["signal_ts"]) if lifecycle["signal_ts"] is not None else None
+                        entry_candle = (
+                            _next_entry(entry, lifecycle["signal_ts"], timestamps=entry_timestamps)
+                            if lifecycle["signal_ts"] is not None
+                            else None
+                        )
                         event_state = "invalidated" if lifecycle["invalidated"] else "expired"
                         if lifecycle["reclaim"] is not None:
                             event_state = "signaled"
@@ -158,7 +185,17 @@ def scan_fresh_liquidity_reversal(
                                 entry_candle=entry_candle,
                                 atr=atr,
                                 preset=preset,
-                                trend_candles=_candles_until(trend, sweep_ts),
+                                trend_context=_cached_market_regime(
+                                    trend,
+                                    int(lifecycle["signal_ts"]),
+                                    confirmed_timestamps=trend_confirmed_timestamps,
+                                    cache=trend_context_cache,
+                                ),
+                                entry_candles=entry,
+                                entry_timestamps=entry_timestamps,
+                                structure_timestamps=structure_timestamps,
+                                volume_evidence_cache=volume_evidence_cache,
+                                execution_timeframe=execution_timeframe,
                             )
                             candidate_rows.append(candidate)
                         elif event_id in emitted_ids:
@@ -175,7 +212,9 @@ def scan_fresh_liquidity_reversal(
                                 "structure_level_type": level_type,
                                 "structure_timeframe": profile.structure_timeframe,
                                 "structure_time": int(getattr(level_candle, "timestamp_ms")),
+                                "structure_confirmed_time": structure_level.confirmed_time,
                                 "sweep_time": sweep_ts,
+                                "sweep_bar_time": sweep_bar_ts,
                                 "sweep_bar_index": index,
                                 "reclaim_time": lifecycle["reclaim_ts"],
                                 "signal_time": lifecycle["signal_ts"],
@@ -329,11 +368,71 @@ def _detect_choch(structure: Sequence[object], sweep_index: int, reclaim: object
 
 def _structure_levels(*, prior: Sequence[object], current: object, profile_key: str, direction: str, atr: float) -> tuple[StructureLevel, ...]:
     levels: list[StructureLevel] = []
+    levels.extend(_session_high_low_levels(prior=prior, current=current, profile_key=profile_key, direction=direction, atr=atr))
     levels.extend(_rolling_range_levels(prior=prior, current=current, profile_key=profile_key, direction=direction, atr=atr))
     levels.extend(_recent_swing_levels(prior=prior, current=current, profile_key=profile_key, direction=direction, atr=atr))
     levels.extend(_equal_high_low_levels(prior=prior, current=current, profile_key=profile_key, direction=direction, atr=atr))
     levels.extend(_previous_day_levels(prior=prior, current=current, profile_key=profile_key, direction=direction, atr=atr))
     return tuple(levels)
+
+
+def _session_high_low_levels(
+    *,
+    prior: Sequence[object],
+    current: object,
+    profile_key: str,
+    direction: str,
+    atr: float,
+) -> tuple[StructureLevel, ...]:
+    if not prior:
+        return ()
+    session_ms = 8 * 60 * 60 * 1000
+    current_ts = int(getattr(current, "timestamp_ms"))
+    grouped: dict[int, list[object]] = defaultdict(list)
+    for candle in prior:
+        timestamp = int(getattr(candle, "timestamp_ms"))
+        session_start = timestamp - (timestamp % session_ms)
+        if session_start + session_ms <= current_ts:
+            grouped[session_start].append(candle)
+    expected_bars = max(1, round(8 / _structure_hours(profile_key)))
+    completed = [
+        (start, tuple(candles))
+        for start, candles in sorted(grouped.items())
+        if len(candles) >= expected_bars
+    ][-3:]
+    names = {0: "asia", 8: "london", 16: "new_york"}
+    levels: list[StructureLevel] = []
+    for start, candles in completed:
+        if direction == "long":
+            candle = min(candles, key=lambda item: float(getattr(item, "low")))
+            price = float(getattr(candle, "low"))
+            level_type = "session_low"
+        else:
+            candle = max(candles, key=lambda item: float(getattr(item, "high")))
+            price = float(getattr(candle, "high"))
+            level_type = "session_high"
+        base = _make_structure_level(
+            "session_high_low",
+            level_type,
+            direction,
+            price,
+            candle,
+            prior,
+            current,
+            profile_key,
+            atr,
+        )
+        hour = datetime.fromtimestamp(start / 1000, tz=UTC).hour
+        levels.append(
+            replace(
+                base,
+                confirmed_time=start + session_ms,
+                session_name=names.get(hour, f"utc_{hour:02d}_session"),
+                session_start_time=start,
+                session_end_time=start + session_ms,
+            )
+        )
+    return tuple(_dedupe_levels(levels))
 
 
 def _rolling_range_levels(*, prior: Sequence[object], current: object, profile_key: str, direction: str, atr: float) -> tuple[StructureLevel, ...]:
@@ -363,21 +462,11 @@ def _recent_swing_levels(*, prior: Sequence[object], current: object, profile_ke
             level_type = "recent_swing_low" if direction == "long" else "recent_swing_high"
             level = _make_structure_level("recent_swing", level_type, direction, price, candle, prior, current, profile_key, atr)
             levels.append(
-                StructureLevel(
-                    source=level.source,
-                    level_type=level.level_type,
-                    direction=level.direction,
-                    price=level.price,
-                    candle=level.candle,
-                    age_bars=level.age_bars,
-                    age_hours=level.age_hours,
-                    distance_abs=level.distance_abs,
-                    distance_atr=level.distance_atr,
-                    touch_count=level.touch_count,
+                replace(
+                    level,
                     swing_strength=strength,
                     liquidity_score=level.liquidity_score + strength,
-                    state=level.state,
-                    diagnostic_only=level.diagnostic_only,
+                    confirmed_time=_swing_confirmed_time(prior, candle, lookback, get_profile(profile_key).structure_timeframe),
                 )
             )
     return tuple(_dedupe_levels(levels))
@@ -398,7 +487,14 @@ def _equal_high_low_levels(*, prior: Sequence[object], current: object, profile_
         if has_equal:
             level_type = "equal_low" if direction == "long" else "equal_high"
             level = _make_structure_level("equal_high_low", level_type, direction, price, candle, prior, current, profile_key, atr)
-            levels.append(_as_diagnostic(level))
+            levels.append(
+                _as_diagnostic(
+                    replace(
+                        level,
+                        confirmed_time=_swing_confirmed_time(prior, candle, 3, get_profile(profile_key).structure_timeframe),
+                    )
+                )
+            )
     return tuple(_dedupe_levels(levels))
 
 
@@ -451,6 +547,7 @@ def _make_structure_level(source: str, level_type: str, direction: str, price: f
         liquidity_score=freshness_score + proximity_score + touch_count_score + swing_strength,
         state=state,
         diagnostic_only=False,
+        confirmed_time=_bar_confirmed_time(candle, get_profile(profile_key).structure_timeframe),
     )
 
 
@@ -458,9 +555,13 @@ def _active_scanner_levels(levels: Sequence[StructureLevel]) -> tuple[StructureL
     eligible = [
         level
         for level in levels
-        if level.state == "active" and not level.diagnostic_only and level.source in {"recent_swing", "rolling_range"}
+        if level.state == "active" and not level.diagnostic_only and level.source in {"session_high_low", "recent_swing", "rolling_range"}
     ]
-    return tuple(sorted(eligible, key=lambda level: level.liquidity_score, reverse=True)[:3])
+    selected: list[StructureLevel] = []
+    for source in ("session_high_low", "recent_swing", "rolling_range"):
+        source_levels = (level for level in eligible if level.source == source)
+        selected.extend(sorted(source_levels, key=lambda level: level.liquidity_score, reverse=True)[:3])
+    return tuple(selected)
 
 
 def _record_structure_level(counts: Counter[str], metrics: dict[str, list[float]], level: StructureLevel) -> None:
@@ -507,22 +608,7 @@ def _dedupe_levels(levels: Sequence[StructureLevel]) -> tuple[StructureLevel, ..
 
 
 def _as_diagnostic(level: StructureLevel) -> StructureLevel:
-    return StructureLevel(
-        source=level.source,
-        level_type=level.level_type,
-        direction=level.direction,
-        price=level.price,
-        candle=level.candle,
-        age_bars=level.age_bars,
-        age_hours=level.age_hours,
-        distance_abs=level.distance_abs,
-        distance_atr=level.distance_atr,
-        touch_count=level.touch_count,
-        swing_strength=level.swing_strength,
-        liquidity_score=level.liquidity_score,
-        state=level.state,
-        diagnostic_only=True,
-    )
+    return replace(level, diagnostic_only=True)
 
 
 def _rolling_windows(profile_key: str) -> tuple[int, ...]:
@@ -534,7 +620,7 @@ def _max_structure_age_bars(profile_key: str) -> int:
 
 
 def _structure_hours(profile_key: str) -> float:
-    return 1.0 if profile_key == "B" else 4.0
+    return _timeframe_duration_ms(get_profile(profile_key).structure_timeframe) / 3_600_000
 
 
 def _level_state(*, age_bars: int, distance_atr: float | None, profile_key: str) -> str:
@@ -563,6 +649,7 @@ def _resolve_lifecycle(
     direction: str,
     max_reclaim: int,
     reclaim_windows: Sequence[int],
+    structure_timeframe: str,
 ) -> dict[str, object]:
     sweep = structure[sweep_index]
     reclaim = None
@@ -576,9 +663,12 @@ def _resolve_lifecycle(
             break
     return {
         "reclaim": reclaim,
-        "reclaim_ts": None if reclaim is None else int(getattr(reclaim, "timestamp_ms")),
-        "signal_ts": None if reclaim is None else int(getattr(reclaim, "timestamp_ms")),
-        "expiry_ts": int(getattr(structure[min(len(structure) - 1, sweep_index + max_reclaim)], "timestamp_ms")),
+        "reclaim_ts": None if reclaim is None else _bar_confirmed_time(reclaim, structure_timeframe),
+        "signal_ts": None if reclaim is None else _bar_confirmed_time(reclaim, structure_timeframe),
+        "expiry_ts": _bar_confirmed_time(
+            structure[min(len(structure) - 1, sweep_index + max_reclaim)],
+            structure_timeframe,
+        ),
         "invalidated": invalidated,
         "reclaimed_within": {
             int(window): reclaim is not None and _bar_distance(structure, sweep, reclaim) <= int(window)
@@ -601,7 +691,12 @@ def _candidate_row(
     entry_candle,
     atr: float,
     preset: BacktestPresetConfig,
-    trend_candles: Sequence[object],
+    trend_context: object,
+    entry_candles: Sequence[object],
+    entry_timestamps: Sequence[int],
+    structure_timestamps: Sequence[int],
+    volume_evidence_cache: dict[tuple[int, str], Mapping[str, object]],
+    execution_timeframe: str,
 ) -> dict[str, object]:
     entry = float(getattr(entry_candle, "open"))
     sweep_extreme = float(getattr(sweep, "low")) if direction == "long" else float(getattr(sweep, "high"))
@@ -610,10 +705,41 @@ def _candidate_row(
     target_price = entry + abs(entry - stop) * 2.0 if direction == "long" else entry - abs(stop - entry) * 2.0
     stop_atr = abs(entry - stop) / atr if atr > 0 else None
     features = _context_features(target, profile_key, preset)
-    sweep_volume = _volume_evidence(_candles_until(structure, int(getattr(sweep, "timestamp_ms"))), direction, features)
-    reclaim_volume = _volume_evidence(_candles_until(structure, int(getattr(reclaim, "timestamp_ms"))), direction, features)
+    sweep_volume = _cached_volume_evidence(
+        structure,
+        int(getattr(sweep, "timestamp_ms")),
+        direction,
+        features,
+        timestamps=structure_timestamps,
+        cache=volume_evidence_cache,
+    )
+    reclaim_volume = _cached_volume_evidence(
+        structure,
+        int(getattr(reclaim, "timestamp_ms")),
+        direction,
+        features,
+        timestamps=structure_timestamps,
+        cache=volume_evidence_cache,
+    )
     choch = _detect_choch(structure, sweep_index, reclaim, direction)
-    trend = build_market_regime(trend_candles)
+    choch_volume = (
+        {}
+        if choch is None
+        else _cached_volume_evidence(
+            structure,
+            int(getattr(choch, "timestamp_ms")),
+            direction,
+            features,
+            timestamps=structure_timestamps,
+            cache=volume_evidence_cache,
+        )
+    )
+    structure_timeframe = get_profile(profile_key).structure_timeframe
+    sweep_time = _bar_confirmed_time(sweep, structure_timeframe)
+    reclaim_time = _bar_confirmed_time(reclaim, structure_timeframe)
+    choch_time = None if choch is None else _bar_confirmed_time(choch, structure_timeframe)
+    choch_entry = None if choch_time is None else _next_entry(entry_candles, choch_time, timestamps=entry_timestamps)
+    trend = trend_context
     trend_direction = "" if trend is None or trend.direction is None else trend.direction
     trend_state = "missing" if trend is None else trend.status
     trend_aligned = trend_state == "TREND" and trend_direction == direction
@@ -621,7 +747,15 @@ def _candidate_row(
     neutral_trend = not trend_aligned and not countertrend
     sweep_rvol = _rvol_value(sweep_volume)
     reclaim_rvol = _rvol_value(reclaim_volume)
+    choch_rvol = _rvol_value(choch_volume)
     reclaim_bars = _bar_distance(structure, sweep, reclaim)
+    sweep_depth_atr = (
+        max(0.0, structure_level.price - float(getattr(sweep, "low"))) / atr
+        if direction == "long" and atr > 0
+        else max(0.0, float(getattr(sweep, "high")) - structure_level.price) / atr
+        if atr > 0
+        else None
+    )
     displacement_body_atr = _body_atr(reclaim, atr)
     choch_body_atr = None if choch is None else _body_atr(choch, atr)
     confirmation = _entry_confirmation_tags(
@@ -646,21 +780,32 @@ def _candidate_row(
         "structure_level_source": structure_level.source,
         "structure_level_type": structure_level.level_type,
         "structure_time": int(getattr(structure_level.candle, "timestamp_ms")),
+        "structure_confirmed_time": structure_level.confirmed_time,
+        "structure_level_state": structure_level.state,
         "structure_level_age_bars": structure_level.age_bars,
         "distance_to_current_price_atr_structure_tf": structure_level.distance_atr,
         "liquidity_score": structure_level.liquidity_score,
         "level_touch_count": structure_level.touch_count,
         "level_freshness_score": _freshness_score(structure_level.age_bars),
-        "sweep_time": int(getattr(sweep, "timestamp_ms")),
-        "reclaim_time": int(getattr(reclaim, "timestamp_ms")),
-        "signal_time": int(getattr(reclaim, "timestamp_ms")),
+        "sweep_time": sweep_time,
+        "sweep_bar_time": int(getattr(sweep, "timestamp_ms")),
+        "sweep_depth_atr": sweep_depth_atr,
+        "reclaim_time": reclaim_time,
+        "reclaim_bar_time": int(getattr(reclaim, "timestamp_ms")),
+        "signal_time": reclaim_time,
         "entry_time": int(getattr(entry_candle, "timestamp_ms")),
+        "execution_timeframe": execution_timeframe,
+        "entry_model": f"next_confirmed_{execution_timeframe}_open",
+        "entry_delay_minutes": (int(getattr(entry_candle, "timestamp_ms")) - reclaim_time) / 60_000,
+        "choch_entry_time": None if choch_entry is None else int(getattr(choch_entry, "timestamp_ms")),
+        "choch_entry_price": None if choch_entry is None else float(getattr(choch_entry, "open")),
         "event_state": "emitted",
         "reclaim_bars": reclaim_bars,
         "reclaim_within_1": reclaim_bars <= 1,
         "reclaim_within_3": reclaim_bars <= 3,
         "reclaim_within_5": reclaim_bars <= 5,
         "entry_price": entry,
+        "atr_value": atr,
         "reclaim_price": float(getattr(reclaim, "close")),
         "sweep_extreme": sweep_extreme,
         "stop_price": stop,
@@ -684,6 +829,13 @@ def _candidate_row(
         "fvg_retest_hit": confirmation["fvg_retest_hit"],
         "sweep_rvol": sweep_rvol,
         "reclaim_rvol": reclaim_rvol,
+        "choch_rvol": choch_rvol,
+        "sweep_rolling_rvol": sweep_volume.get("rolling_rvol"),
+        "sweep_tod_dow_rvol": sweep_volume.get("tod_dow_rvol"),
+        "reclaim_rolling_rvol": reclaim_volume.get("rolling_rvol"),
+        "reclaim_tod_dow_rvol": reclaim_volume.get("tod_dow_rvol"),
+        "choch_rolling_rvol": choch_volume.get("rolling_rvol"),
+        "choch_tod_dow_rvol": choch_volume.get("tod_dow_rvol"),
         "rolling_rvol": sweep_volume.get("rolling_rvol"),
         "tod_dow_rvol": sweep_volume.get("tod_dow_rvol"),
         "volume_baseline_mode": sweep_volume.get("volume_baseline_mode"),
@@ -694,8 +846,9 @@ def _candidate_row(
         "volume_missing_reason": "" if sweep_rvol is not None and reclaim_rvol is not None else "insufficient_volume_baseline",
         "choch_detected": choch is not None,
         "choch_direction": direction if choch is not None else "",
-        "choch_time": None if choch is None else int(getattr(choch, "timestamp_ms")),
-        "choch_timeframe": get_profile(profile_key).structure_timeframe,
+        "choch_time": choch_time,
+        "choch_bar_time": None if choch is None else int(getattr(choch, "timestamp_ms")),
+        "choch_timeframe": structure_timeframe,
         "bars_reclaim_to_choch": None if choch is None else max(0, _bar_distance(structure, reclaim, choch)),
         "choch_valid_for_direction": choch is not None,
         "choch_body_atr": choch_body_atr,
@@ -714,6 +867,9 @@ def _candidate_row(
         "pdh_pdl_tag": structure_level.source == "previous_day_high_low",
         "eqh_eql_tag": structure_level.source == "equal_high_low",
         "session_high_low_tag": structure_level.source == "session_high_low",
+        "session_name": structure_level.session_name,
+        "session_start_time": structure_level.session_start_time,
+        "session_end_time": structure_level.session_end_time,
         "utc_hour": utc_hour,
         "funding_window_proximity": _funding_window_proximity(utc_hour),
         "london_open_window": 7 <= utc_hour <= 9,
@@ -780,7 +936,16 @@ def _summary_rows(
 
 
 def _duplicate_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
-    counts = Counter(str(row.get("event_id", "")) for row in rows)
+    counts = Counter(
+        (
+            str(row.get("asset") or ""),
+            str(row.get("profile") or ""),
+            str(row.get("direction") or ""),
+            int(row.get("sweep_time") or 0),
+            int(row.get("reclaim_time") or 0),
+        )
+        for row in rows
+    )
     dupes = [count for count in counts.values() if count > 1]
     return {
         "duplicate_candidate_count": sum(count - 1 for count in dupes),
@@ -802,10 +967,79 @@ def _invalidates(candle: object, sweep: object, direction: str) -> bool:
     return float(getattr(candle, "low")) < float(getattr(sweep, "low")) if direction == "long" else float(getattr(candle, "high")) > float(getattr(sweep, "high"))
 
 
-def _next_entry(entry: Sequence[object], signal_ts: int | None) -> object | None:
+def _next_entry(
+    entry: Sequence[object],
+    signal_ts: int | None,
+    *,
+    timestamps: Sequence[int] | None = None,
+) -> object | None:
     if signal_ts is None:
         return None
-    return next((candle for candle in entry if int(getattr(candle, "timestamp_ms")) > signal_ts), None)
+    ordered_timestamps = timestamps or tuple(int(getattr(candle, "timestamp_ms")) for candle in entry)
+    index = bisect_right(ordered_timestamps, signal_ts)
+    return entry[index] if index < len(entry) else None
+
+
+def _bar_confirmed_time(candle: object, timeframe: str) -> int:
+    return int(getattr(candle, "timestamp_ms")) + _timeframe_duration_ms(timeframe)
+
+
+def _confirmed_candles_until(
+    candles: Sequence[object],
+    cutoff_ts: int,
+    timeframe: str,
+    *,
+    confirmed_timestamps: Sequence[int] | None = None,
+) -> tuple[object, ...]:
+    ordered_timestamps = confirmed_timestamps or tuple(_bar_confirmed_time(candle, timeframe) for candle in candles)
+    return tuple(candles[: bisect_right(ordered_timestamps, cutoff_ts)])
+
+
+def _cached_market_regime(
+    candles: Sequence[object],
+    cutoff_ts: int,
+    *,
+    confirmed_timestamps: Sequence[int],
+    cache: dict[int, object],
+) -> object:
+    end = bisect_right(confirmed_timestamps, cutoff_ts)
+    if end not in cache:
+        cache[end] = build_market_regime(tuple(candles[:end]))
+    return cache[end]
+
+
+def _cached_volume_evidence(
+    candles: Sequence[object],
+    timestamp_ms: int,
+    direction: str,
+    context_features: Mapping[str, object],
+    *,
+    timestamps: Sequence[int],
+    cache: dict[tuple[int, str], Mapping[str, object]],
+) -> Mapping[str, object]:
+    end = bisect_right(timestamps, timestamp_ms)
+    key = (end, direction)
+    if key not in cache:
+        cache[key] = _volume_evidence(tuple(candles[:end]), direction, context_features)
+    return cache[key]
+
+
+def _swing_confirmed_time(candles: Sequence[object], candle: object, lookback: int, timeframe: str) -> int:
+    candle_index = _index_of(candles, int(getattr(candle, "timestamp_ms")))
+    confirmation_index = min(len(candles) - 1, candle_index + lookback)
+    return _bar_confirmed_time(candles[confirmation_index], timeframe)
+
+
+def _timeframe_duration_ms(timeframe: str) -> int:
+    unit = timeframe[-1:].lower()
+    try:
+        value = int(timeframe[:-1])
+    except ValueError as exc:
+        raise ValueError(f"unsupported timeframe: {timeframe}") from exc
+    multipliers = {"m": 60_000, "h": 3_600_000, "d": 86_400_000}
+    if unit not in multipliers or value <= 0:
+        raise ValueError(f"unsupported timeframe: {timeframe}")
+    return value * multipliers[unit]
 
 
 def _atr(candles: Sequence[object]) -> float:

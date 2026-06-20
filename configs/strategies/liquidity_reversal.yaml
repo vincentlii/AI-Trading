@@ -1,8 +1,11 @@
 strategy: liquidity_reversal
-config_version: pr12_final_restricted_variant_b
-status: formalized_research_candidate
+config_version: research_stopped_2026_06_21
+status: research_stopped
+stop_reason: no_robust_positive_execution_edge
+holdout_accessed: false
 live_trading_enabled: false
-formalized_candidate: restricted_variant_b
+formalized_candidate: none
+historical_candidate: restricted_variant_b
 
 scope:
   assets: [BTC, ETH]
@@ -12,7 +15,7 @@ scope:
 
 candidate_family:
   tier_1:
-    enabled: true
+    enabled: false
     setups:
       - name: session_hl_attempt4_fixed_current
         structure_source: Session_HL
@@ -25,7 +28,7 @@ candidate_family:
         exit_profile: dynamic_time_cut
         sizing_policy: quality_aware_capped_sizing
   positive_tier_2:
-    enabled: true
+    enabled: false
     setups:
       - name: session_hl_attempt3_dynamic_quality
         structure_source: Session_HL
@@ -43,9 +46,9 @@ risk_restrictions:
   liquidation_event_count_required: 0
 
 proposal_boundaries:
-  session_hl_source: formalized_for_restricted_variant_b_only
-  dynamic_time_cut: formalized_for_restricted_variant_b_only
-  quality_aware_capped_sizing: formalized_for_restricted_variant_b_only
+  session_hl_source: historical_invalidated_only
+  dynamic_time_cut: historical_invalidated_only
+  quality_aware_capped_sizing: historical_invalidated_only
   b_profile: diagnostic_only
   rolling_range: diagnostic_only
   pdh_pdl: diagnostic_only
@@ -66,7 +69,8 @@ not_formalized:
   partial_tp_structure_target: false
   structure_target_only: false
 
-validated_metrics:
+historical_invalidated_metrics:
+  status: invalidated_by_causal_timestamp_audit
   source: storage/backtest_cache/pr11h_fix/lr_robustness_fix_result.json
   restricted_variant_b:
     closed: 183

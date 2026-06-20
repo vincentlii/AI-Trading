@@ -17,6 +17,10 @@ from research_pipeline.runners.list_artifacts import list_artifacts_from_index, 
 from research_pipeline.runners.lr_attempt_proposal import run_lr_attempt_proposal
 from research_pipeline.runners.lr_combined_candidate_fix import run_lr_combined_candidate_fix
 from research_pipeline.runners.lr_combined_candidate_proposal import run_lr_combined_candidate_proposal
+from research_pipeline.runners.lr_causal_rebuild import run_lr_causal_anatomy
+from research_pipeline.runners.lr_multitimeframe_event_research import (
+    run_lr_multitimeframe_event_research,
+)
 from research_pipeline.runners.lr_exit_profile_proposal import run_lr_exit_profile_proposal
 from research_pipeline.runners.lr_expansion_diagnostics import run_lr_expansion_diagnostics
 from research_pipeline.runners.lr_robustness_fix import run_lr_robustness_fix
@@ -319,6 +323,23 @@ def main(argv: list[str] | None = None) -> int:
     lr_combined_fix.add_argument("--sizing-candidates", required=True)
     lr_combined_fix.add_argument("--output-dir", required=True)
     lr_combined_fix.add_argument("--format", choices=("json", "markdown"), default="json")
+
+    lr_causal_rebuild = subparsers.add_parser("lr-causal-rebuild")
+    lr_causal_rebuild.add_argument(
+        "--stage",
+        choices=("anatomy", "multitimeframe-events"),
+        default="anatomy",
+    )
+    lr_causal_rebuild.add_argument("--mode", choices=("development",), default="development")
+    lr_causal_rebuild.add_argument("--preset", default="configs/presets/btc_eth_swap_lr_formal.toml")
+    lr_causal_rebuild.add_argument("--db", default="storage/history.duckdb")
+    lr_causal_rebuild.add_argument(
+        "--output-root",
+        default="storage/research_runs/liquidity_reversal/causal_rebuild_v1",
+    )
+    lr_causal_rebuild.add_argument("--start", default="2020-12-31")
+    lr_causal_rebuild.add_argument("--end", default="2024-11-30")
+    lr_causal_rebuild.add_argument("--format", choices=("json", "markdown"), default="json")
 
     lr_robustness = subparsers.add_parser("lr-robustness-validation")
     lr_robustness.add_argument("--artifact-dir", required=True)
@@ -829,6 +850,32 @@ def main(argv: list[str] | None = None) -> int:
                     encoding="utf-8"
                 )
             )
+        else:
+            print(result.as_json())
+        return 0
+    if args.command == "lr-causal-rebuild":
+        preset = load_backtest_preset(args.preset)
+        repository = DuckDbCandleRepository(Path(args.db))
+        if args.stage == "multitimeframe-events":
+            result = run_lr_multitimeframe_event_research(
+                repository=repository,
+                preset=preset,
+                output_root=Path(args.output_root),
+                start_date=args.start,
+                end_date=args.end,
+            )
+            report_name = "lr_multitimeframe_vpa_causal_event_report.md"
+        else:
+            result = run_lr_causal_anatomy(
+                repository=repository,
+                preset=preset,
+                output_root=Path(args.output_root),
+                start_date=args.start,
+                end_date=args.end,
+            )
+            report_name = "lr_causal_anatomy_report.md"
+        if args.format == "markdown":
+            print((Path(result.run_root) / report_name).read_text(encoding="utf-8"))
         else:
             print(result.as_json())
         return 0
