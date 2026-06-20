@@ -82,6 +82,7 @@ def run_layered_proposal(
 ) -> LayeredProposalResult:
     if mode not in LAYERED_MODES:
         raise ValueError(f"unsupported layered mode: {mode}")
+    effective_setup_filter = tuple(setup_filter or preset.strategy.enabled_setups)
     paths = artifact_paths(cache_dir)
     paths.cache_dir.mkdir(parents=True, exist_ok=True)
     started = perf_counter()
@@ -92,7 +93,7 @@ def run_layered_proposal(
         max_entry_windows=max_entry_windows,
         force_context=force_context,
         force_candidates=force_candidates,
-        setup_filter=setup_filter,
+        setup_filter=effective_setup_filter,
         progress_path=Path(progress_path) if progress_path is not None else None,
     )
 
@@ -162,7 +163,7 @@ def run_layered_proposal(
         execution_rows=execution_rows,
         max_entry_windows=max_entry_windows,
         cost_tiers=tuple(cost_tiers),
-        setup_filter=setup_filter,
+        setup_filter=effective_setup_filter,
         elapsed_seconds=perf_counter() - started,
     )
     write_json(paths.manifest_path, manifest)
@@ -296,7 +297,11 @@ def _build_context_rows(
 ) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, object], ...]]:
     rows: list[dict[str, object]] = []
     coverage: list[dict[str, object]] = []
-    fast_context_only = tuple(setup_filter or ()) in {("trend_continuation",), ("compression_expansion",), ("breakout_pullback",)}
+    fast_context_only = tuple(setup_filter or ()) in {
+        ("trend_continuation",),
+        ("compression_expansion",),
+        ("breakout_pullback",),
+    }
     for target in preset.to_scan_config().targets:
         for profile_key in preset.scan.profile_keys:
             profile = get_profile(profile_key)
@@ -653,6 +658,7 @@ def _ensure_execution_results(
         return read_jsonl(paths.execution_results_path), "reused"
     approved = tuple(row for row in filter_rows if row.get("formal_approved") or row.get("shadow_approved"))
     rows: list[dict[str, object]] = []
+    candle_cache: dict[tuple[str, str, str, str, str], tuple[object, ...]] = {}
     for tier_name in cost_tiers:
         tier_preset = _tier_preset(preset, tier_name)
         engine = BacktestExecutionEngine(
@@ -662,7 +668,7 @@ def _ensure_execution_results(
         for row in approved:
             if not row.get("formal_approved"):
                 continue
-            signal_input = _input_from_filter_row(repository, row, tier_preset)
+            signal_input = _input_from_filter_row(repository, row, tier_preset, candle_cache=candle_cache)
             if signal_input is None:
                 continue
             result = engine.run((signal_input,))
@@ -672,7 +678,13 @@ def _ensure_execution_results(
     return tuple(rows), "forced_rebuild" if force_execution else "created"
 
 
-def _input_from_filter_row(repository, row: Mapping[str, object], preset: BacktestPresetConfig) -> BacktestSignalInput | None:
+def _input_from_filter_row(
+    repository,
+    row: Mapping[str, object],
+    preset: BacktestPresetConfig,
+    *,
+    candle_cache: dict[tuple[str, str, str, str, str], tuple[object, ...]] | None = None,
+) -> BacktestSignalInput | None:
     profile = get_profile(str(row["profile"]))
     target = BacktestScanTarget(
         canonical_symbol=str(row["symbol"]),
@@ -680,7 +692,13 @@ def _input_from_filter_row(repository, row: Mapping[str, object], preset: Backte
         venue=str(row["venue"]),
         inst_type=str(row["inst_type"]),
     )
-    entry = _load_timeframe(repository, target, profile.entry_timeframe, preset)
+    cache_key = (target.inst_id, target.venue, target.inst_type, profile.entry_timeframe, str(row["symbol"]))
+    if candle_cache is not None and cache_key in candle_cache:
+        entry = candle_cache[cache_key]
+    else:
+        entry = _load_timeframe(repository, target, profile.entry_timeframe, preset)
+        if candle_cache is not None:
+            candle_cache[cache_key] = entry
     execution_candles = tuple(candle for candle in entry if int(getattr(candle, "timestamp_ms")) > int(row["timestamp_ms"]))[: preset.execution.max_holding_bars]
     if not execution_candles:
         return None

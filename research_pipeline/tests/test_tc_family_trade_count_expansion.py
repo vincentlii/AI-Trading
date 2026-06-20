@@ -122,8 +122,8 @@ class TcFamilyTradeCountExpansionTests(unittest.TestCase):
     def test_variant_candidate_selection_arbitrates_signals_across_cache_batches(self) -> None:
         class Store:
             def iter_event_batches(self):
-                yield (_event(lifecycle_event_id="low", candidate_rank_score=0.4),)
-                yield (_event(lifecycle_event_id="high", candidate_rank_score=0.9),)
+                yield (_event(lifecycle_event_id="low", candidate_rank_score=0.4, pullback_zone_type="shallow_pullback"),)
+                yield (_event(lifecycle_event_id="high", candidate_rank_score=0.9, pullback_zone_type="shallow_pullback"),)
 
         selected = _select_variant_candidates_from_store(
             store=Store(),

@@ -1,0 +1,35 @@
+config_version = "btc_eth_swap_proposal_v1"
+
+[include]
+assets = "configs/assets/btc_eth_swap.toml"
+risk = "configs/risk/default.toml"
+costs = "configs/costs/crypto_swap_research.toml"
+strategy = "configs/strategies/trend_price_volume_swap_proposal.toml"
+
+[scan]
+profile_keys = ["B", "C"]
+
+[execution]
+initial_equity = 100000.0
+max_holding_bars = 20
+conservative_same_bar = true
+point_value = 1.0
+enable_advanced_exits = true
+partial_take_profit_r = 1.0
+partial_take_profit_pct = 0.5
+move_stop_to_true_breakeven = true
+breakeven_after_mfe_r = 1.0
+chandelier_period = 22
+chandelier_atr_multiple = 4.0
+invalidation_mode = "structure_extreme_buffer"
+invalidation_buffer_atr = 0.15
+invalidation_buffer_atr_candidates = [0.10, 0.15, 0.20]
+shadow_max_stop_atr_multiple_candidates = [5.0, 8.0]
+reversal_time_cut_bars = 8
+reversal_time_cut_min_mfe_r = 0.5
+reversal_time_cut_bars_candidates = [5, 8, 12]
+reversal_time_cut_min_mfe_r_candidates = [0.3, 0.5, 0.8]
+
+[ranking]
+fast_profile_fee_reject_threshold = 0.25
+min_trades_for_primary = 30

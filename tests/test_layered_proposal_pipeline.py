@@ -5,10 +5,12 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from scripts.run_btc_eth_swap_proposal import parse_args
-from trading_system.backtest.layered_cache import candidate_generation_config_hash, context_config_hash, filter_config_hash
-from trading_system.backtest.layered_pipeline import _execution_row, _filter_candidate, run_layered_proposal
+from trading_system.backtest.layered_cache import artifact_paths, candidate_generation_config_hash, context_config_hash, filter_config_hash
+from trading_system.backtest import layered_pipeline
+from trading_system.backtest.layered_pipeline import _ensure_execution_results, _execution_row, _filter_candidate, run_layered_proposal
 from trading_system.config import StrategyConfig, load_backtest_preset
 from trading_system.data.history import CandleRepository
 from trading_system.data.okx_cli import Candle
@@ -16,6 +18,7 @@ from trading_system.data.okx_cli import Candle
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SWAP_PRESET_PATH = PROJECT_ROOT / "configs" / "presets" / "btc_eth_swap_proposal.toml"
+LR_FORMAL_PRESET_PATH = PROJECT_ROOT / "configs" / "presets" / "btc_eth_swap_lr_formal.toml"
 
 
 def _candle(index: int, open_price: float, high: float, low: float, close: float, volume: float = 100.0, confirmed: bool = True) -> Candle:
@@ -54,7 +57,101 @@ def _repository_with_swap_context() -> CandleRepository:
     return repository
 
 
+class _CountingCandleRepository(CandleRepository):
+    def __init__(self):
+        super().__init__()
+        self.list_calls: dict[tuple[str, str, str], int] = {}
+
+    def list_candles(self, inst_id: str, bar: str, *, venue: str = "okx", inst_type: str = "SPOT"):
+        key = (inst_id, bar, inst_type)
+        self.list_calls[key] = self.list_calls.get(key, 0) + 1
+        return super().list_candles(inst_id, bar, venue=venue, inst_type=inst_type)
+
+
 class LayeredProposalPipelineTests(unittest.TestCase):
+    def test_default_setup_filter_uses_preset_enabled_setups(self):
+        preset = load_backtest_preset(LR_FORMAL_PRESET_PATH)
+        seen_setup_filters = []
+
+        def fake_generate_raw_candidates(**kwargs):
+            seen_setup_filters.append(tuple(kwargs.get("setup_filter") or ()))
+            return ()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("trading_system.backtest.layered_pipeline.generate_raw_candidates", side_effect=fake_generate_raw_candidates):
+                run_layered_proposal(
+                    repository=_repository_with_swap_context(),
+                    preset=preset,
+                    mode="candidate_only",
+                    cache_dir=Path(temp_dir),
+                    max_entry_windows=2,
+                    cost_tiers=("base",),
+                )
+
+        self.assertTrue(seen_setup_filters)
+        self.assertEqual(set(seen_setup_filters), {("liquidity_reversal",)})
+
+    def test_liquidity_context_preserves_market_and_volume_features(self):
+        preset = load_backtest_preset(LR_FORMAL_PRESET_PATH)
+        build_market_regime = layered_pipeline.build_market_regime
+        confirm_volume_price = layered_pipeline.confirm_volume_price
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("trading_system.backtest.layered_pipeline._build_raw_candidates", return_value=()):
+                with patch("trading_system.backtest.layered_pipeline.build_market_regime", side_effect=build_market_regime) as regime:
+                    with patch("trading_system.backtest.layered_pipeline.confirm_volume_price", side_effect=confirm_volume_price) as volume:
+                        run_layered_proposal(
+                            repository=_repository_with_swap_context(),
+                            preset=preset,
+                            mode="candidate_only",
+                            cache_dir=Path(temp_dir),
+                            max_entry_windows=2,
+                            cost_tiers=("base",),
+                        )
+
+        self.assertGreater(regime.call_count, 0)
+        self.assertGreater(volume.call_count, 0)
+
+    def test_execution_reuses_entry_candles_for_same_symbol_profile(self):
+        preset = load_backtest_preset(LR_FORMAL_PRESET_PATH)
+        repository = _CountingCandleRepository()
+        entry = tuple(_candle(index, 100.0, 104.0, 96.0, 102.0) for index in range(1, 8))
+        repository.save_many("BTC-USDT-SWAP", "15m", entry, inst_type="SWAP")
+        rows = tuple(
+            {
+                **_raw_liquidity_candidate(reclaim_rvol=1.0),
+                "candidate_id": f"approved-{index}",
+                "event_id": f"event-{index}",
+                "symbol": "BTC/USDT",
+                "inst_id": "BTC-USDT-SWAP",
+                "inst_type": "SWAP",
+                "profile": "B",
+                "formal_approved": True,
+                "shadow_approved": False,
+                "timestamp_ms": entry[index].timestamp_ms,
+                "entry_price": 100.0,
+                "target_price": 104.0,
+                "stop_price": 98.0,
+                "target_r": 2.0,
+                "atr_value": 1.0,
+            }
+            for index in (1, 2)
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = artifact_paths(Path(temp_dir))
+            paths.cache_dir.mkdir(parents=True, exist_ok=True)
+            _ensure_execution_results(
+                repository=repository,
+                preset=preset,
+                paths=paths,
+                filter_rows=rows,
+                cost_tiers=("base",),
+                force_execution=True,
+            )
+
+        self.assertEqual(repository.list_calls[("BTC-USDT-SWAP", "15m", "SWAP")], 1)
+
     def test_breakout_pullback_execution_row_preserves_audit_time_chain(self):
         candidate = {
             "candidate_id": "bp-1",

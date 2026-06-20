@@ -125,6 +125,8 @@ class RiskEngine:
         *,
         atr: float,
         cost_estimate: CostEstimate | None = None,
+        cap_single_notional: bool = False,
+        min_actual_risk_pct_after_cap: float = 0.0,
     ) -> RiskDecision:
         if atr <= 0:
             raise ValueError("atr must be greater than 0")
@@ -149,8 +151,18 @@ class RiskEngine:
             quantity = risk_amount / (intent.stop_distance * intent.point_value)
             notional_value = quantity * intent.entry_price * intent.point_value
 
-        if notional_value > account.equity * self.parameters.max_single_notional_pct:
-            reasons.append("notional_cap_exceeded")
+        max_single_notional = account.equity * self.parameters.max_single_notional_pct
+        if notional_value > max_single_notional:
+            if cap_single_notional and intent.entry_price > 0 and intent.point_value > 0:
+                notional_value = max_single_notional
+                quantity = notional_value / (intent.entry_price * intent.point_value)
+                risk_amount = quantity * intent.stop_distance * intent.point_value
+                risk_pct = risk_amount / account.equity
+            else:
+                reasons.append("notional_cap_exceeded")
+
+        if cap_single_notional and risk_pct < min_actual_risk_pct_after_cap:
+            reasons.append("actual_risk_after_cap_below_minimum")
 
         current_notional = sum(position.notional_value for position in account.open_positions)
         if current_notional + notional_value > account.equity * self.parameters.max_total_gross_leverage:

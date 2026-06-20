@@ -6,12 +6,21 @@ from io import StringIO
 from pathlib import Path
 
 from research_pipeline.cli.research import main
+from research_pipeline.runners.full_pipeline_audit import _manifest_path
 
 
 from research_pipeline.tests.fixture_paths import COMBINED_FIX_DIR as ARTIFACT_DIR
 
 
 class FullPipelineAuditCliTest(unittest.TestCase):
+    def test_manifest_path_accepts_setup_specific_legacy_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            legacy = artifact_dir / "research_manifest.json"
+            legacy.write_text("{}", encoding="utf-8")
+
+            self.assertEqual(_manifest_path(artifact_dir), legacy)
+
     def test_full_audit_cli_writes_reusable_gate_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir)

@@ -26,8 +26,8 @@ def run_full_pipeline_audit(
     output_dir: Path | None,
 ) -> FullPipelineAuditResult:
     artifact_dir = Path(artifact_dir)
-    manifest_path = artifact_dir / "run_manifest.json"
-    if manifest_path.exists():
+    manifest_path = _manifest_path(artifact_dir)
+    if manifest_path is not None:
         return _run_manifest_full_pipeline_audit(
             strategy=strategy,
             artifact_dir=artifact_dir,
@@ -115,6 +115,14 @@ def run_full_pipeline_audit(
     if output_dir is not None:
         _write_outputs(result, Path(output_dir))
     return result
+
+
+def _manifest_path(artifact_dir: Path) -> Path | None:
+    for name in ("run_manifest.json", "research_manifest.json"):
+        path = Path(artifact_dir) / name
+        if path.exists():
+            return path
+    return None
 
 
 def _run_manifest_full_pipeline_audit(

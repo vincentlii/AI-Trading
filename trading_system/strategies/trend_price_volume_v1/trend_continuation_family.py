@@ -8,6 +8,13 @@ FAMILY_VARIANT_IDS = (
     "bp_lifecycle_level_zone_v1",
 )
 
+_SUPPORTED_FAMILY_VARIANT_IDS = (
+    *FAMILY_VARIANT_IDS,
+    "ce_lifecycle_native_light_confirm_v1",
+    "ce_lifecycle_shallow_momentum_v1",
+    "bp_shallow_momentum_capped_risk_v3",
+)
+
 _COMPACT_EVENT_FIELDS = {
     "lifecycle_event_id",
     "breakout_event_id",
@@ -83,7 +90,7 @@ _COMPACT_ZONE_FIELDS = {
 
 
 def family_variant_setup(variant_id: str) -> str:
-    if variant_id not in FAMILY_VARIANT_IDS:
+    if variant_id not in _SUPPORTED_FAMILY_VARIANT_IDS:
         raise ValueError(f"unsupported TC family variant: {variant_id}")
     return "compression_expansion" if variant_id.startswith("ce_") else "breakout_pullback"
 

@@ -79,6 +79,22 @@ class RiskEngineTests(unittest.TestCase):
         self.assertEqual(heat.status, "rejected")
         self.assertIn("portfolio_heat_exceeded", heat.reason_codes)
 
+    def test_opt_in_notional_capping_reduces_size_without_bypassing_risk_engine(self):
+        params = RiskParameters(max_single_notional_pct=0.15, max_portfolio_heat_pct=0.05)
+        decision = RiskEngine(params).evaluate(
+            self.intent(stop_loss=99.0),
+            self.account(),
+            atr=1.0,
+            cap_single_notional=True,
+            min_actual_risk_pct_after_cap=0.001,
+        )
+
+        self.assertEqual(decision.status, "approved")
+        self.assertEqual(decision.approved_order.notional_value, 15_000.0)
+        self.assertEqual(decision.approved_order.quantity, 150.0)
+        self.assertEqual(decision.approved_order.risk_amount, 150.0)
+        self.assertEqual(decision.risk_pct, 0.0015)
+
     def test_drawdown_thresholds_reduce_risk_and_hard_stop(self):
         engine = self.engine()
 

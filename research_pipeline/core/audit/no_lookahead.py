@@ -35,9 +35,9 @@ def build_no_lookahead_rows(
         )
     output.extend(
         [
-            _field_check("bar_confirmed_true", rows, "bar_confirmed"),
-            _field_check("same_bar_ambiguity_pessimistic", rows, "same_bar_ambiguous"),
-            _field_check("no_lookahead_feature_usage", rows, "no_lookahead_safe"),
+            _true_value_check("bar_confirmed_true", rows, "bar_confirmed"),
+            _same_bar_pessimistic_check(rows),
+            _true_value_check("no_lookahead_feature_usage", rows, "no_lookahead_safe"),
         ]
     )
     return output
@@ -54,15 +54,35 @@ def _normalized_checks(checks: Sequence[Sequence[str]] | None) -> tuple[tuple[st
     return tuple(normalized)
 
 
-def _field_check(check_name: str, rows: list[dict[str, Any]], field: str) -> dict[str, Any]:
-    available = sum(1 for row in rows if field in row)
+def _true_value_check(check_name: str, rows: list[dict[str, Any]], field: str) -> dict[str, Any]:
+    available_rows = [row for row in rows if field in row]
+    failed = sum(1 for row in available_rows if row.get(field) is not True)
     return {
         "check_name": check_name,
-        "checked_rows": available,
-        "unverifiable_rows": len(rows) - available,
-        "passed": available == len(rows) and len(rows) > 0,
-        "blocking": available == 0,
-        "details": f"{field} missing from selected rows" if available == 0 else f"{field} available",
+        "checked_rows": len(available_rows),
+        "unverifiable_rows": len(rows) - len(available_rows),
+        "failed_rows": failed,
+        "passed": len(available_rows) == len(rows) and len(rows) > 0 and failed == 0,
+        "blocking": len(available_rows) == 0 or failed > 0,
+        "details": f"{field} must be explicitly true",
+    }
+
+
+def _same_bar_pessimistic_check(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    available_rows = [row for row in rows if "same_bar_ambiguous" in row]
+    failed = sum(
+        1
+        for row in available_rows
+        if row.get("same_bar_ambiguous") is True and row.get("forced_pessimistic_exit") is not True
+    )
+    return {
+        "check_name": "same_bar_ambiguity_pessimistic",
+        "checked_rows": len(available_rows),
+        "unverifiable_rows": len(rows) - len(available_rows),
+        "failed_rows": failed,
+        "passed": len(available_rows) == len(rows) and len(rows) > 0 and failed == 0,
+        "blocking": len(available_rows) == 0 or failed > 0,
+        "details": "ambiguous same-bar rows must use forced pessimistic exits",
     }
 
 
