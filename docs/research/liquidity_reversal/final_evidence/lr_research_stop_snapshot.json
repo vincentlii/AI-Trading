@@ -1,0 +1,68 @@
+{
+  "strategy": "liquidity_reversal",
+  "status": "research_stopped",
+  "as_of": "2026-06-21",
+  "development_window": "2020-12-31_2024-11-30",
+  "holdout_accessed": false,
+  "formal_candidate": null,
+  "historical_candidate": "restricted_variant_b",
+  "historical_candidate_status": "invalidated_by_causal_timestamp_audit",
+  "retained_runs": [
+    {
+      "name": "final",
+      "file_count": 45,
+      "bytes": 865194,
+      "integrity_path": "storage/research_runs/liquidity_reversal/final/artifact_index.json",
+      "sha256": "6a499f9b8a0555e40b0d7c0937e3077a47eaa793684c2e1e63da624d0828cea7"
+    },
+    {
+      "name": "setup_specific_v2",
+      "file_count": 29,
+      "bytes": 124911163,
+      "integrity_path": "storage/research_runs/liquidity_reversal/setup_specific_v2/development_2020-12-31_2024-11-30/artifact_index.json",
+      "sha256": "e94d9c1e23228e232480e02228e4d37d979b8f3a4ded07a1a581bc0028bdc076"
+    },
+    {
+      "name": "causal_rebuild_v4",
+      "file_count": 16,
+      "bytes": 58892882,
+      "integrity_path": "storage/research_runs/liquidity_reversal/causal_rebuild_v4/anatomy_development_2020-12-31_2024-11-30/artifact_index.json",
+      "sha256": "65b35e91a76853a07a2f676c7ca7c27e790fbe9e762b498af1d9eb3823f4e21a"
+    },
+    {
+      "name": "entry_tournament_v2",
+      "file_count": 15,
+      "bytes": 203044263,
+      "integrity_path": "storage/research_runs/liquidity_reversal/entry_tournament_v2/entry_tournament_development_2020-12-31_2024-11-30/artifact_index.json",
+      "sha256": "71d715e5fba12c8937d37a8c9b6e01d7ee816378c8d3830312df9bd626f3d4c7"
+    },
+    {
+      "name": "multitimeframe_vpa_v1",
+      "file_count": 19,
+      "bytes": 115200415,
+      "integrity_path": "storage/research_runs/liquidity_reversal/multitimeframe_vpa_v1/multitimeframe_events_development_2020-12-31_2024-11-30/artifact_index.json",
+      "sha256": "8467a314bb1d3d979f4a220b90048594ca5f18619753cd8d5313eead5d10af97"
+    },
+    {
+      "name": "restricted_variant_b_causal_retest_v1",
+      "file_count": 55,
+      "bytes": 68846284,
+      "integrity_path": "storage/research_runs/liquidity_reversal/restricted_variant_b_causal_retest_v1/development_2020-12-31_2024-11-30/run_manifest.json",
+      "sha256": "52c3d797e0e724f37b270cdb96e7ff557d5cab580fc4ef4ec234fb94e2b47106"
+    }
+  ],
+  "cleanup_candidates": [
+    "causal_rebuild_v1",
+    "causal_rebuild_v1_smoke",
+    "causal_rebuild_v1_smoke_fix",
+    "causal_rebuild_v2",
+    "causal_rebuild_v3_smoke",
+    "causal_rebuild_v4_smoke",
+    "entry_tournament_v1_smoke",
+    "entry_tournament_v2_smoke",
+    "multitimeframe_event_smoke_a",
+    "multitimeframe_event_smoke_b",
+    "setup_specific_v1",
+    "storage/backtest_cache/lr_formal_smoke_verify"
+  ]
+}
