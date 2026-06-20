@@ -15,7 +15,7 @@ Use the project Research Pipeline as the default path for strategy research. Do 
 - Do not formalize a strategy, enter P6, change formal config, or change `live_trading_enabled=false`.
 - Do not bypass `RiskEngine`, fees, funding, margin, notional cap, portfolio heat, stop, target, or exit boundaries.
 - Do not let diagnostic, proposal, or summary rows enter performance metrics.
-- Protect LR final evidence as read-only reference evidence.
+- Protect invalidated or stopped-strategy evidence as read-only historical reference; never restore it as a candidate without a new audited research decision.
 
 ## Inputs
 
@@ -32,11 +32,13 @@ Use the project Research Pipeline as the default path for strategy research. Do 
 2. Check `git branch --show-current` and `git status --short`.
 3. Confirm the strategy has an adapter, manifest, artifact contract, and audit profile.
 4. Prefer cross-run artifact reuse when fingerprints match.
-5. Run baseline before variants.
-6. Run only bounded proposal-only variants requested by the research plan.
-7. Generate a concentrated report instead of many loose CSV files unless audit requires machine-readable artifacts.
-8. Run Full Audit Gate, no-lookahead, metric recompute, robustness, exposure restriction, and regression baseline when closed trades exist.
-9. Record status in Obsidian after the round.
+5. Read existing reports, artifact indexes, and row-level evidence before deciding to rerun expensive scanners.
+6. Run baseline before variants.
+7. Run only bounded proposal-only variants requested by the research plan.
+8. Before execution optimization, test confirmation geometry and fixed-horizon drift when event-reference diagnostics may be improved by chase.
+9. Generate one concentrated report per stage unless audit requires machine-readable artifacts.
+10. Run Full Audit Gate, no-lookahead, metric recompute, robustness, exposure restriction, and regression baseline when closed trades exist.
+11. Record status in Obsidian after the round.
 
 ## Required Outputs
 
@@ -53,3 +55,5 @@ Use the project Research Pipeline as the default path for strategy research. Do 
 - If artifact fingerprints do not match, reject reuse.
 - If Full Audit fails, stop formalization discussion.
 - If variants are exhausted, preserve findings and do not continue local tuning.
+- If upstream event semantics or path-order remain unreliable, do not expand entry, exit, sizing, or threshold grids.
+- When a bounded research line is stopped, preserve the final evidence map, keep holdout sealed, archive intermediate reports, and mark the strategy `stopped`.

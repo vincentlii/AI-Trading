@@ -39,10 +39,12 @@ Keep `AI Trading/` as the single long-term knowledge source. Root docs stay as t
 5. Add artifact paths only when they are needed for recovery or audit.
 6. Keep Paper Review Loop and Hermes-like evolution as future P6+ planning unless explicitly started.
 7. Run a grep check for forbidden state flips before finishing.
+8. When research stops, preserve a machine-readable evidence map and cleanup manifest, archive detailed stage reports, and update every active page that still claims a superseded candidate status.
 
 ## Forbidden
 
 - Do not mark diagnostic snapshots as formal candidates.
 - Do not imply P6 or live trading readiness.
 - Do not rewrite LR final evidence.
+- Do not delete historical evidence when invalidating it; add a supersession notice and keep the original artifacts read-only.
 - Do not create many parallel v1 pages when an existing page can be updated.

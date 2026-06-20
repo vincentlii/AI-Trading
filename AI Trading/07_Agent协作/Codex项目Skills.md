@@ -46,7 +46,8 @@ dry-run 检查：
 
 ## 当前项目状态口径
 
-- LR Restricted Variant B 是 formal research candidate，但不是 live strategy；final evidence 只读保护。
+- LR causal rebuild 已停止；Restricted Variant B 仅作 historical invalidated evidence，holdout 未访问，final evidence 继续只读保护。
+- Skills 已加入双参考价 confirmation geometry、fixed-horizon、explicit-true no-lookahead、future-label 隔离和 stopped-research 归档流程。
 - Research Pipeline 已 hardened 为通用研究框架。
 - Full Audit Gate 已 generic-hardened。
 - cross-run artifact reuse 已可用于后续调参和 expansion diagnostics。

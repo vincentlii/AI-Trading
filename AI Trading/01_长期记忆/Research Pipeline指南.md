@@ -61,7 +61,7 @@ Research Pipeline 是通用研究工厂，不是 LR 专用脚本集合。新策�
 
 ## 当前策略状态
 
-- `liquidity_reversal` 是 Restricted Variant B formal research candidate，但仍不是 live strategy。
+- `liquidity_reversal` 已停止 causal rebuild；当前无 formal candidate，Restricted Variant B 仅作 historical invalidated evidence。
 - `trend_continuation` 已停止局部调参，状态为 `strategy_definition_refactor_needed`。
 - `compression_expansion` 是 `diagnostic_candidate`；setup_id / adapter / manifest 统一命名为 `compression_expansion`，Obsidian 语义名 `compression_expansion_breakout` 指向同一 setup。
 - `breakout_pullback` 已完成 proposal-only initial research，当前为 backlog，不是 formal candidate。

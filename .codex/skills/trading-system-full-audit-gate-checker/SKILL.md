@@ -15,6 +15,11 @@ Full Audit Gate verifies whether research artifacts are traceable, recomputable,
 - `proposal`, `diagnostic`, `summary`, and sizing diagnostic rows must be excluded from returns.
 - Closed trades must trace execution, candidate, event, and timeseries lineage.
 - No-lookahead must validate event and trade time order, not only field presence.
+- Causal flags such as `bar_confirmed` and `no_lookahead_safe` must be explicitly `true`; field presence is insufficient.
+- Ambiguous same-bar paths must record a forced pessimistic resolution.
+- Event, signal, confirmation, entry, and feature-cutoff timestamps must follow their declared bar-close semantics.
+- Future returns, MFE/MAE, path-order, and post-signal volume are diagnostic labels and must never enter features, entry, or quality gates.
+- Duplicate physical events, deterministic artifact hashes, and `holdout_accessed=false` must be checked explicitly.
 - Metric recompute must match reported metrics from row-level artifacts.
 - Robustness, exposure restriction, and regression baseline must use audited closed_trade rows.
 
@@ -35,8 +40,9 @@ Full Audit Gate verifies whether research artifacts are traceable, recomputable,
 4. Verify lineage keys and timestamps.
 5. Run no-lookahead checks.
 6. Check artifact integrity and fingerprints.
-7. Compare regression baseline.
-8. Summarize pass, fail, or unverifiable.
+7. Verify diagnostic-label isolation, physical-event accounting, and holdout state.
+8. Compare regression baseline.
+9. Summarize pass, fail, or unverifiable.
 
 ## Outputs
 

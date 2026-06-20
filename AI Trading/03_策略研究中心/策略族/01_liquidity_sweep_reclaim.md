@@ -1,8 +1,8 @@
 ---
 type: strategy-family
 strategy_family: liquidity_sweep_reclaim
-status: formal_research_candidate
-updated: 2026-06-02
+status: research_stopped
+updated: 2026-06-21
 tags:
   - strategy/pa-vpa
   - strategy/implemented
@@ -10,7 +10,7 @@ tags:
 
 # 01_liquidity_sweep_reclaim
 
-结论：`liquidity_reversal` 已完成 LR 研究收口，当前正式状态是 formal research candidate；它不是 live trading strategy，`live_trading_enabled=false`。
+结论：`liquidity_reversal` causal rebuild 已停止。当前无 formal research candidate，Restricted Variant B 仅作 historical invalidated evidence，`live_trading_enabled=false`，holdout 未访问。
 
 ## 定位
 
@@ -27,29 +27,27 @@ tags:
 - 量价确认吸收、停止量或对手盘衰竭。
 - 目标扣除成本后至少 `1.5R`。
 
-## 当前正式研究候选
+## 当前状态
 
 | 项目 | 结论 |
 | --- | --- |
-| 正式候选 | Restricted Variant B |
-| 组合 | Tier 1 + Positive Tier 2 |
-| 风险限制 | `portfolio_heat_cap=0.05` |
-| 正式适用范围 | C profile |
-| B profile | diagnostic-only |
+| 状态 | `research_stopped` |
+| 正式候选 | 无 |
+| 历史候选 | Restricted Variant B，已被 causal timestamp audit 否定 |
+| 正确语义复验 | historical repair：5,078 笔，total_net_R=-356.64，PF=0.722；rebuilt 1H+15m：223 笔，total_net_R=-23.26，PF=0.724 |
+| holdout | 未访问，继续封存 |
 | live trading | `live_trading_enabled=false` |
-| 最终指标 | closed=183，total_R=85.070，PF=7.80，max_concurrent=10，same_direction_overlap=303，portfolio_heat=0.05 |
 
-正式化不包含 unrestricted Variant B、Full original family、Tier 3、rolling_range、PDH/PDL、EQH/EQL、runner、partial TP、structure target 或 unexecuted proposal rows。
+历史配置和 183 笔指标只用于追溯，不得恢复、推广或作为下一策略的正式基线。
 
-## 研究收口结论
+## 停止结论
 
-- raw candidates=0 的根因不是 LR 方向无效，而是旧 structure source 使用全历史 range high/low，结构位过旧且离当前价格太远。
-- active structure source 已从全历史 range high/low 调整为 `recent_swing` / `rolling_range`；其中 `recent_swing` 是稳定 baseline，`rolling_range` 保留观察。
-- Session_HL 在 clean rebuild 中表现强，但当前仍作为通过 proposal 验证的 LR family 组成部分，不代表所有 session source 均已正式泛化。
-- PDH/PDL、EQH/EQL 当前保留 diagnostic / backlog，需要后续 scanner/source 支持。
-- attempt_4 displacement 是高质量主 setup；attempt_3 CHOCH/MSS 是覆盖更宽的 secondary setup。
-- B profile 不是没有候选，但 formal approval 极低；未发现 writer / join / execution mapping 丢失，因此当前只保留 diagnostic-only。
-- 旧 PR11C-PR11G 结果只作为历史参考，最终决策以 clean rebuild、full-audit、robustness、exposure restriction 和 final evidence 为准。
+- 旧 183 笔高收益主要来自错误 4H 确认时间、事后路径 exit、结果排序 exposure cap 和重复 physical event，不能迁移到正确语义。
+- 15m 事件池并非完全无方向性，但 MFE/MAE 近似对称，属于宽事件池中的路径噪声。
+- 1H same-bar failure auction 语义更干净；15m structural confirmation 的表面改善主要来自 confirmation chase 和 R geometry。
+- 从 confirmation close 重新计算后，path-order 回到接近基线；固定持有仅有弱短期漂移，去重后 36h 转负、48h 接近零。
+- Anatomy 到 execution 的 gross edge 只有约 +0.081R，约 0.228R 成本将其稳定翻为 -0.147R；成本是直接损耗，但上游 edge 太薄才是根因。
+- PDH/PDL 比 Session H/L 更接近共识流动性，VPA 只有弱到中等 attribution 价值，均不足以恢复 LR。
 
 ## 长期研究结论
 

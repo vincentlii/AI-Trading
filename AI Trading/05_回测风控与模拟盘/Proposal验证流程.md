@@ -9,7 +9,7 @@ tags:
 
 # Proposal验证流程
 
-结论：proposal 是建议，不是配置；未验证、未人工确认前不得进入确定性热路径。LR 收口后，Research Pipeline / Full Audit Gate 是所有策略调参进入 formal candidate 前的主路径。
+结论：proposal 是建议，不是配置；未验证、未人工确认前不得进入确定性热路径。LR 研究停止后，Research Pipeline / Full Audit Gate 仍是所有策略进入 formal candidate 前的主路径。
 
 ## 流程
 
@@ -128,7 +128,7 @@ PR 11H robustness 通过收益压力测试不等于可以直接进入 PR 12。�
 
 PR11H-fix 必须先解释 profile concentration，再验证 exposure restriction。当前 clean PR11H-fix 结果显示：B/C fresh candidates 基本相当（B=2828，C=2824），不是 B profile 无机会；但 B formal approved 只有 13，C formal approved 为 404，集中主要来自 formal risk / quality gate 通过率差异，而不是 writer / join / execution mapping 丢失。Variant B unrestricted 为 closed=198、total_net_R=94.815、PF=8.57、max_concurrent_positions=22、same_direction_overlap_count=558、portfolio_heat_max=0.11；`portfolio_heat_cap_5pct` 后为 closed=183、total_net_R=85.070、PF=7.80、max_concurrent_positions=10、same_direction_overlap_count=303、portfolio_heat_max=0.05。该结果只能作为 PR12 候选输入；Session_HL、dynamic_time_cut 或 quality_aware_capped_sizing 不得脱离 Restricted Variant B 泛化为通用正式规则。
 
-PR12 正式化范围只包括 Restricted Variant B：Tier 1 + Positive Tier 2 + `portfolio_heat_cap=0.05`，正式适用范围为 C profile；B profile 保留 diagnostic-only。正式配置为 `configs/strategies/liquidity_reversal.yaml`，final baseline 位于 `storage/research_runs/liquidity_reversal/final/final_regression_baseline.json`。unrestricted Variant B、Full original family、Tier 3、rolling_range、PDH/PDL、EQH/EQL、runner、partial TP、structure target 和 unexecuted proposal rows 均不得进入正式主配置。该配置仍保持 `live_trading_enabled=false`，不得被描述为实盘策略。
+历史 PR12 曾将 Restricted Variant B 设为 formal research candidate；该结论已被后续 causal timestamp audit 与正确语义双轨复验推翻。`configs/strategies/liquidity_reversal.yaml` 当前为 `research_stopped`，历史 final baseline 只读保留，不得恢复为正式配置或实盘策略。
 
 ## 禁止事项
 

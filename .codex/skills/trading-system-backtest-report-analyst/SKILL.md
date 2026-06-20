@@ -14,6 +14,7 @@ Read research reports and artifacts to explain what drove results. Distinguish s
 - Do not infer live-trading readiness.
 - Do not recommend formalization without Full Audit evidence.
 - Do not use diagnostic / proposal / summary rows as performance.
+- Treat diagnostic R, path-order, MFE/MAE, and fixed-horizon returns as attribution labels, not tradable PnL.
 - Do not hand-pick asset, profile, direction, or regime to beautify results.
 - Do not propose loosening risk, cost, margin, or formal exits.
 
@@ -35,7 +36,10 @@ Read research reports and artifacts to explain what drove results. Distinguish s
 5. Review walk-forward and regime split.
 6. Diagnose MFE vs final R, MAE timing, profit giveback, and cost flips.
 7. Identify whether the issue is signal, entry, exit, cost, sizing, or sample concentration.
-8. Produce proposal-only next steps with explicit stop rules.
+8. When confirmation follows the event, compare event-reference and confirmation-reference geometry; improvement that disappears after re-referencing is chase, not stronger edge.
+9. Recompute key diagnostics on unique physical events and check year, asset, and direction stability.
+10. Use fixed-horizon returns to distinguish short-lived impulse from durable drift before execution optimization.
+11. Produce proposal-only next steps with explicit stop rules.
 
 ## Outputs
 

@@ -31,10 +31,12 @@ Turn “no candidates” or “too few trades” into a staged, explainable rese
 2. Build staged funnel from context to candidate to approval to closed_trade.
 3. Rank primary rejection layers and secondary reasons.
 4. Separate low-quality rejects, reasonable near-misses, and definition conflicts.
-5. Design only minimal proposal-only variants targeting the diagnosed bottleneck.
-6. Reuse baseline artifacts when fingerprint-safe.
-7. Run audit isolation so diagnostic rows cannot enter metrics.
-8. Stop after the bounded variant budget.
+5. Confirm the upstream event definition has credible path-order before expanding downstream entry or execution variants.
+6. Check unique physical events and cross-year, asset, and direction stability before treating trade count as independent evidence.
+7. Design only minimal proposal-only variants targeting the diagnosed bottleneck.
+8. Reuse baseline artifacts when fingerprint-safe.
+9. Run audit isolation so diagnostic rows cannot enter metrics.
+10. Stop after the bounded variant budget.
 
 ## Outputs
 
@@ -49,3 +51,4 @@ Turn “no candidates” or “too few trades” into a staged, explainable rese
 - If the main bottleneck is unexplained, report pipeline / feature gap first.
 - If variants still produce no candidates or no audited closed trades, stop.
 - If a setup definition is too broad, recommend strategy-family split instead of local tuning.
+- If positive diagnostics disappear after confirmation-reference remeasurement, stop grid expansion and redefine the signal.
