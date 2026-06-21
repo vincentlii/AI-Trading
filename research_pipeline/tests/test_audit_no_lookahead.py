@@ -4,6 +4,27 @@ from research_pipeline.core.audit.no_lookahead import build_no_lookahead_rows
 
 
 class AuditNoLookaheadTest(unittest.TestCase):
+    def test_custom_lt_check_is_strict_while_lte_allows_equality(self) -> None:
+        source = {
+            "relaunch_time": 10,
+            "signal_time": 10,
+            "bar_confirmed": True,
+            "same_bar_ambiguous": False,
+            "no_lookahead_safe": True,
+        }
+
+        strict = build_no_lookahead_rows(
+            [source],
+            time_field_checks=(("relaunch_time_lt_signal_time", "relaunch_time", "signal_time"),),
+        )[0]
+        inclusive = build_no_lookahead_rows(
+            [source],
+            time_field_checks=(("relaunch_time_lte_signal_time", "relaunch_time", "signal_time"),),
+        )[0]
+
+        self.assertFalse(strict["passed"])
+        self.assertTrue(inclusive["passed"])
+
     def test_missing_time_fields_are_unverifiable(self) -> None:
         rows = build_no_lookahead_rows([{"candidate_id": "c1"}])
         check = next(row for row in rows if row["check_name"] == "signal_time_lt_entry_time")

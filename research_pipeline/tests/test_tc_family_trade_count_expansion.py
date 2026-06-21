@@ -3,21 +3,131 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from research_pipeline.core.reports.tc_family_trade_count_and_variant_expansion import (
     write_tc_family_trade_count_report,
 )
+from research_pipeline.cli.research import _candidate_cutoff_ms, _utc_date_bounds, _with_scan_profiles
+from research_pipeline.runners.strategy_expansion_diagnostics import _event_rows_for_mode
 from research_pipeline.runners.tc_family_trade_count_expansion import (
+    _event_is_causal_at_context,
+    _filter_context_rows_by_candidate_end,
     _portfolio_heat_allows,
     _select_variant_candidates_from_store,
+    _simulate_capped_candidate,
     _unique_structure_context_rows,
     family_audit_profile,
     select_family_decision,
 )
+from trading_system.backtest.layered_pipeline import _has_candle_at_or_before
+from trading_system.config import load_backtest_preset
+from trading_system.strategies.trend_price_volume_v1.trend_continuation_family import family_event_eligible
 from tests.test_trend_continuation_family import _event
 
 
 class TcFamilyTradeCountExpansionTests(unittest.TestCase):
+    def test_scan_profile_override_is_in_memory_only(self) -> None:
+        preset = load_backtest_preset("configs/presets/btc_eth_swap_tc_formal.toml")
+
+        overridden = _with_scan_profiles(preset, ("B",))
+
+        self.assertEqual(preset.scan.profile_keys, ("C",))
+        self.assertEqual(overridden.scan.profile_keys, ("B",))
+
+    def test_simulation_passes_explicit_execution_boundary_to_input_builder(self) -> None:
+        preset = load_backtest_preset("configs/presets/btc_eth_swap_tc_formal.toml")
+
+        with patch(
+            "research_pipeline.runners.tc_family_trade_count_expansion._input_from_filter_row",
+            return_value=None,
+        ) as builder:
+            closed, reason = _simulate_capped_candidate(
+                repository=object(),
+                candidate={"candidate_id": "candidate-1"},
+                tier_preset=preset,
+                tier_name="base",
+                execution_timeframe="15m",
+            )
+
+        self.assertIsNone(closed)
+        self.assertEqual(reason, "missing_execution_candles")
+        builder.assert_called_once_with(
+            unittest.mock.ANY,
+            {"candidate_id": "candidate-1"},
+            preset,
+            execution_timeframe="15m",
+        )
+
+    def test_event_replay_only_accepts_the_structure_bar_confirmation_context(self) -> None:
+        event = {
+            "relaunch_time": 1_000,
+            "timestamp_ms": 1_000 + 3 * 60 * 60_000,
+            "structure_timeframe": "4h",
+        }
+
+        self.assertTrue(_event_is_causal_at_context(event))
+        self.assertFalse(
+            _event_is_causal_at_context(
+                {**event, "timestamp_ms": 1_000 + 7 * 60 * 60_000}
+            )
+        )
+
+    def test_candidate_replay_predicate_keeps_all_variant_eligible_events(self) -> None:
+        diagnostics = {
+            "event_rows": (
+                {
+                    "event": "eligible",
+                    "breakout_class": "strong_breakout",
+                    "pullback_zone_type": "level_retest",
+                    "pullback_health_class": "healthy",
+                    "relaunch_quality_class": "strong",
+                    "structural_stop_quality": "valid",
+                    "target_quality_class": "good",
+                },
+                {"event": "ineligible", "breakout_class": "failed_breakout"},
+            ),
+        }
+
+        self.assertEqual(
+            _event_rows_for_mode(
+                diagnostics,
+                event_predicate=lambda row: family_event_eligible(row, "bp_lifecycle_level_zone_v1"),
+            ),
+            (diagnostics["event_rows"][0],),
+        )
+
+    def test_fast_context_history_check_uses_timestamp_presence(self) -> None:
+        self.assertFalse(_has_candle_at_or_before((), 100))
+        self.assertFalse(_has_candle_at_or_before((101, 102), 100))
+        self.assertTrue(_has_candle_at_or_before((99, 101), 100))
+
+    def test_utc_date_bounds_reserve_entry_and_holding_bars(self) -> None:
+        start_ms, end_ms, end_exclusive_ms = _utc_date_bounds("2020-12-31", "2024-11-30")
+
+        self.assertEqual(start_ms, 1_609_372_800_000)
+        self.assertEqual(end_ms, 1_733_011_199_999)
+        self.assertEqual(end_exclusive_ms, 1_733_011_200_000)
+        self.assertEqual(
+            _candidate_cutoff_ms(
+                end_exclusive_ms=end_exclusive_ms,
+                entry_timeframes=("1h",),
+                max_holding_bars=20,
+            ),
+            1_732_935_600_000,
+        )
+
+    def test_candidate_cutoff_removes_context_without_complete_trade_path(self) -> None:
+        rows = (
+            {"timestamp_ms": 100, "candidate": "kept"},
+            {"timestamp_ms": 101, "candidate": "cut"},
+        )
+
+        self.assertEqual(
+            _filter_context_rows_by_candidate_end(rows, candidate_end_ms=100),
+            ({"timestamp_ms": 100, "candidate": "kept"},),
+        )
+
     def test_native_ce_audit_profile_does_not_require_pullback_or_relaunch(self) -> None:
         profile = family_audit_profile("ce_lifecycle_native_light_confirm_v1")
 

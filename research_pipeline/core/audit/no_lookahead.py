@@ -21,7 +21,7 @@ def build_no_lookahead_rows(
     output = []
     for check_name, fields in _normalized_checks(time_field_checks):
         available_rows = [row for row in rows if all(row.get(field) not in (None, "") for field in fields)]
-        failed = sum(1 for row in available_rows if not _time_order_ok(row, fields))
+        failed = sum(1 for row in available_rows if not _time_order_ok(row, fields, check_name=check_name))
         output.append(
             {
                 "check_name": check_name,
@@ -86,12 +86,12 @@ def _same_bar_pessimistic_check(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _time_order_ok(row: dict[str, Any], fields: tuple[str, str]) -> bool:
+def _time_order_ok(row: dict[str, Any], fields: tuple[str, str], *, check_name: str) -> bool:
     left = _to_int(row.get(fields[0]))
     right = _to_int(row.get(fields[1]))
     if left is None or right is None:
         return False
-    if fields[0] == "signal_time" and fields[1] == "entry_time":
+    if "_lt_" in check_name:
         return left < right
     return left <= right
 

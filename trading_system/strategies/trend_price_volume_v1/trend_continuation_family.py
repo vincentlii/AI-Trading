@@ -166,6 +166,11 @@ def _variant_eligible(event: Mapping[str, object], variant_id: str) -> bool:
     return shallow
 
 
+def family_event_eligible(event: Mapping[str, object], variant_id: str) -> bool:
+    family_variant_setup(variant_id)
+    return _variant_eligible(event, variant_id)
+
+
 def _candidate_from_event(
     event: Mapping[str, object],
     *,
@@ -176,9 +181,11 @@ def _candidate_from_event(
     direction = str(event.get("direction") or "")
     atr = _event_atr(event, zone)
     native = variant_id == "ce_lifecycle_native_light_confirm_v1"
-    signal_time = _int(event.get("acceptance_end_time") if native else event.get("relaunch_time"))
+    signal_time = _int(event.get("timestamp_ms"))
     if signal_time is None:
-        signal_time = _int(event.get("timestamp_ms")) or _int(event.get("breakout_time")) or 0
+        signal_time = _int(event.get("acceptance_end_time") if native else event.get("relaunch_time"))
+    if signal_time is None:
+        signal_time = _int(event.get("breakout_time")) or 0
     entry = _float(event.get("breakout_close") if native else event.get("relaunch_close"))
     if entry is None:
         entry = _float(event.get("breakout_price")) or _float(zone.get("zone_mid")) or 0.0
@@ -374,4 +381,5 @@ __all__ = (
     "compact_family_event",
     "family_variant_setup",
     "select_family_candidates",
+    "family_event_eligible",
 )

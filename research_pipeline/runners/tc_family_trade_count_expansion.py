@@ -44,6 +44,7 @@ from trading_system.strategies.trend_price_volume_v1.trend_continuation_core imp
 from trading_system.strategies.trend_price_volume_v1.trend_continuation_family import (
     FAMILY_VARIANT_IDS,
     compact_family_event,
+    family_event_eligible,
     family_variant_setup,
     select_family_candidates,
 )
@@ -73,6 +74,7 @@ def run_tc_family_trade_count_expansion(
     dataset_window: str,
     output_root: Path,
     max_entry_windows: int | None = None,
+    candidate_end_ms: int | None = None,
     cost_tiers: Sequence[str] = ("base", "stress", "harsh"),
     chunk_size: int = 20,
     timestamp: datetime | None = None,
@@ -84,6 +86,7 @@ def run_tc_family_trade_count_expansion(
         preset=preset,
         dataset_window=dataset_window,
         max_entry_windows=max_entry_windows,
+        candidate_end_ms=candidate_end_ms,
     )
     fingerprint_hash = stable_fingerprint(cache_fingerprint)
     cache_root = output_root / "shared_cache" / fingerprint_hash[:24]
@@ -96,6 +99,7 @@ def run_tc_family_trade_count_expansion(
         preset=preset,
         dataset_window=dataset_window,
         max_entry_windows=max_entry_windows,
+        candidate_end_ms=candidate_end_ms,
         chunk_size=max(1, int(chunk_size)),
         cache_root=cache_root,
     )
@@ -115,6 +119,7 @@ def run_tc_family_trade_count_expansion(
             dataset_window=dataset_window,
             output_dir=run_root / "variants" / variant_id,
             cost_tiers=tuple(cost_tiers),
+            candidate_end_ms=candidate_end_ms,
         )
         variant_summaries[variant_id] = variant_summary
         artifact_paths.append(str(run_root / "variants" / variant_id))
@@ -195,7 +200,7 @@ def family_audit_profile(variant_id: str) -> AuditProfile:
             ("acceptance_end_time_lte_pullback_start_time", "acceptance_end_time", "pullback_start_time"),
             ("pullback_start_time_lte_pullback_end_time", "pullback_start_time", "pullback_end_time"),
             ("pullback_end_time_lte_relaunch_time", "pullback_end_time", "relaunch_time"),
-            ("relaunch_time_lte_signal_time", "relaunch_time", "signal_time"),
+            ("relaunch_time_lt_signal_time", "relaunch_time", "signal_time"),
         ]
     return AuditProfile(
         required_lineage_fields=lineage,
@@ -229,6 +234,7 @@ def _ensure_shared_event_store(
     preset: BacktestPresetConfig,
     dataset_window: str,
     max_entry_windows: int | None,
+    candidate_end_ms: int | None,
     chunk_size: int,
     cache_root: Path,
 ) -> dict[str, object]:
@@ -241,10 +247,14 @@ def _ensure_shared_event_store(
         max_entry_windows=max_entry_windows,
         setup_filter=("breakout_pullback",),
     )
-    context_rows = _unique_structure_context_rows(all_context_rows)
+    context_rows = _filter_context_rows_by_candidate_end(
+        _unique_structure_context_rows(all_context_rows),
+        candidate_end_ms=candidate_end_ms,
+    )
     processed = min(int(status["processed_windows"]), len(context_rows))
     summary = store.read_scan_summary()
     summary.setdefault("total_windows", len(all_context_rows))
+    summary.setdefault("candidate_end_ms", candidate_end_ms)
     summary.setdefault("evaluated_structure_windows", processed)
     summary.setdefault("candidate_ready_windows", 0)
     summary.setdefault("structure_zones_found", 0)
@@ -279,6 +289,9 @@ def _ensure_shared_event_store(
             variant_id="tc_family_shared_lifecycle_core",
             parameter_overrides=None,
             runtime_cache=runtime_cache,
+            event_predicate=lambda row: any(
+                family_event_eligible(row, variant_id) for variant_id in FAMILY_VARIANT_IDS
+            ),
         )
         context_diagnostics = [row for row in diagnostics if row.get("diagnostic_scope") == "context_window"]
         events = [row for row in diagnostics if row.get("diagnostic_scope") == "event_lifecycle"]
@@ -303,7 +316,7 @@ def _ensure_shared_event_store(
             distributions["target_quality_distribution"][str(row.get("target_quality_class") or "unknown")] += 1
         replay_rows = []
         for row in events:
-            if not _event_replay_relevant(row):
+            if not _event_replay_relevant(row) or not _event_is_causal_at_context(row):
                 continue
             compact = compact_family_event(row)
             compact["context_key"] = store.context_key(row)
@@ -340,6 +353,7 @@ def _run_variant(
     dataset_window: str,
     output_dir: Path,
     cost_tiers: Sequence[str],
+    candidate_end_ms: int | None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     candidate_rows = _select_variant_candidates_from_store(store=store, variant_id=variant_id)
@@ -418,6 +432,9 @@ def _run_variant(
             "variant_id": variant_id,
             "sizing_policy": "capped_risk_sizing_proposal_only",
             "shared_cache_fingerprint": store.fingerprint_hash,
+            "scan_start_ms": preset.scan.start_ms,
+            "scan_end_ms": preset.scan.end_ms,
+            "candidate_end_ms": candidate_end_ms,
         },
         baseline_ref=str(store.path),
         proposal_only=True,
@@ -513,6 +530,7 @@ def _execute_capped_candidates(
     preset: BacktestPresetConfig,
     filter_rows: list[dict[str, object]],
     cost_tiers: Sequence[str],
+    execution_timeframe: str | None = None,
 ) -> tuple[dict[str, object], ...]:
     rows: list[dict[str, object]] = []
     scheduling_tier = "base" if "base" in cost_tiers else str(cost_tiers[0])
@@ -536,6 +554,7 @@ def _execute_capped_candidates(
             candidate=candidate,
             tier_preset=scheduling_preset,
             tier_name=scheduling_tier,
+            execution_timeframe=execution_timeframe,
         )
         if closed is None:
             candidate["proposal_execution_status"] = "not_executed"
@@ -581,6 +600,7 @@ def _execute_capped_candidates(
                 candidate=candidate,
                 tier_preset=tier_preset,
                 tier_name=tier_name,
+                execution_timeframe=execution_timeframe,
             )
             if closed is not None:
                 rows.append(closed)
@@ -593,8 +613,14 @@ def _simulate_capped_candidate(
     candidate: Mapping[str, object],
     tier_preset: BacktestPresetConfig,
     tier_name: str,
+    execution_timeframe: str | None = None,
 ) -> tuple[dict[str, object] | None, str]:
-    signal_input = _input_from_filter_row(repository, candidate, tier_preset)
+    signal_input = _input_from_filter_row(
+        repository,
+        candidate,
+        tier_preset,
+        execution_timeframe=execution_timeframe,
+    )
     if signal_input is None:
         return None, "missing_execution_candles"
     intent, atr, reasons = SignalOrderAdapter().to_order_intent(
@@ -827,11 +853,12 @@ def _cache_fingerprint(
     preset: BacktestPresetConfig,
     dataset_window: str,
     max_entry_windows: int | None,
+    candidate_end_ms: int | None,
 ) -> dict[str, object]:
     database_path = Path(getattr(repository, "database_path", "unknown")).resolve()
     stat = database_path.stat() if database_path.exists() else None
     return {
-        "cache_contract": "tc_family_shared_lifecycle_event_store.v1",
+        "cache_contract": "tc_family_signal_context_event_store.v5",
         "context_sampling_policy": "latest_entry_context_per_structure_bar.v1",
         "core_engine_version": CORE_ENGINE_VERSION,
         "diagnostic_adapter_version": BreakoutPullbackAdapter.adapter_version,
@@ -841,11 +868,26 @@ def _cache_fingerprint(
         "database_mtime_ns": None if stat is None else stat.st_mtime_ns,
         "config_fingerprint": preset.config_fingerprint,
         "max_entry_windows": max_entry_windows,
+        "scan_start_ms": preset.scan.start_ms,
+        "scan_end_ms": preset.scan.end_ms,
+        "candidate_end_ms": candidate_end_ms,
         "assets": [target.inst_id for target in preset.assets.targets],
         "profiles": list(preset.scan.profile_keys),
         "setup_filter": ["breakout_pullback"],
         "replay_variants": list(FAMILY_VARIANT_IDS),
     }
+
+
+def _filter_context_rows_by_candidate_end(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    candidate_end_ms: int | None,
+) -> tuple[dict[str, object], ...]:
+    return tuple(
+        dict(row)
+        for row in rows
+        if candidate_end_ms is None or int(row["timestamp_ms"]) <= candidate_end_ms
+    )
 
 
 def _family_artifact_contract() -> ArtifactContract:
@@ -877,6 +919,24 @@ def _event_replay_relevant(row: Mapping[str, object]) -> bool:
         and str(row.get("structural_stop_quality") or "") == "valid"
         and str(row.get("target_quality_class") or "") in {"good", "acceptable"}
     )
+
+
+def _event_is_causal_at_context(row: Mapping[str, object]) -> bool:
+    event_time = row.get("relaunch_time") or row.get("acceptance_end_time")
+    context_time = row.get("timestamp_ms")
+    timeframe_ms = _timeframe_ms(str(row.get("structure_timeframe") or ""))
+    if event_time is None or context_time is None or timeframe_ms <= 0:
+        return False
+    delay_ms = int(context_time) - int(event_time)
+    return 0 <= delay_ms < timeframe_ms
+
+
+def _timeframe_ms(timeframe: str) -> int:
+    normalized = timeframe.strip().lower()
+    if len(normalized) < 2 or not normalized[:-1].isdigit():
+        return 0
+    multiplier = {"m": 60_000, "h": 60 * 60_000, "d": 24 * 60 * 60_000}.get(normalized[-1])
+    return 0 if multiplier is None else int(normalized[:-1]) * multiplier
 
 
 def _valid_trade_geometry(intent) -> bool:

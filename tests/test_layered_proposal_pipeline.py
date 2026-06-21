@@ -10,7 +10,13 @@ from unittest.mock import patch
 from scripts.run_btc_eth_swap_proposal import parse_args
 from trading_system.backtest.layered_cache import artifact_paths, candidate_generation_config_hash, context_config_hash, filter_config_hash
 from trading_system.backtest import layered_pipeline
-from trading_system.backtest.layered_pipeline import _ensure_execution_results, _execution_row, _filter_candidate, run_layered_proposal
+from trading_system.backtest.layered_pipeline import (
+    _ensure_execution_results,
+    _execution_row,
+    _filter_candidate,
+    _input_from_filter_row,
+    run_layered_proposal,
+)
 from trading_system.config import StrategyConfig, load_backtest_preset
 from trading_system.data.history import CandleRepository
 from trading_system.data.okx_cli import Candle
@@ -69,6 +75,36 @@ class _CountingCandleRepository(CandleRepository):
 
 
 class LayeredProposalPipelineTests(unittest.TestCase):
+    def test_execution_override_starts_after_explicit_available_time(self):
+        preset = load_backtest_preset(LR_FORMAL_PRESET_PATH)
+        repository = _repository_with_swap_context()
+        available_time = _candle(4, 100.0, 101.0, 99.0, 100.5).timestamp_ms
+        row = {
+            **_raw_liquidity_candidate(reclaim_rvol=1.0),
+            "symbol": "BTC/USDT",
+            "inst_id": "BTC-USDT-SWAP",
+            "inst_type": "SWAP",
+            "venue": "okx",
+            "profile": "B",
+            "timestamp_ms": available_time,
+            "event_available_time_ms": available_time,
+            "entry_price": 100.0,
+            "stop_price": 98.0,
+            "target_price": 104.0,
+            "target_r": 2.0,
+            "atr_value": 2.0,
+        }
+
+        signal_input = _input_from_filter_row(
+            repository,
+            row,
+            preset,
+            execution_timeframe="15m",
+        )
+
+        self.assertIsNotNone(signal_input)
+        self.assertGreater(signal_input.execution_candles[0].timestamp_ms, available_time)
+
     def test_default_setup_filter_uses_preset_enabled_setups(self):
         preset = load_backtest_preset(LR_FORMAL_PRESET_PATH)
         seen_setup_filters = []

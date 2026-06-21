@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from research_pipeline.adapters.base import StrategyAdapter
 from research_pipeline.core.artifacts.index import build_index_for_directory, write_artifact_index
@@ -867,6 +867,7 @@ def diagnostic_rows_for_adapter(
     variant_id: str,
     parameter_overrides: Mapping[str, object] | None,
     runtime_cache: dict[str, Any] | None = None,
+    event_predicate: Callable[[Mapping[str, object]], bool] | None = None,
 ) -> tuple[dict[str, object], ...]:
     runtime = runtime_cache if runtime_cache is not None else {}
     candle_cache = runtime.setdefault("candle_cache", {})
@@ -934,7 +935,9 @@ def diagnostic_rows_for_adapter(
                 structure_regime_cache[structure_key],
             )
         )
-        for event_index, event_row in enumerate(diagnostics.get("event_rows", ())):
+        for event_index, event_row in enumerate(
+            _event_rows_for_mode(diagnostics, event_predicate=event_predicate)
+        ):
             if not isinstance(event_row, Mapping):
                 continue
             rows.append(
@@ -948,6 +951,21 @@ def diagnostic_rows_for_adapter(
                 )
             )
     return tuple(rows)
+
+
+def _event_rows_for_mode(
+    diagnostics: Mapping[str, Any],
+    *,
+    event_predicate: Callable[[Mapping[str, object]], bool] | None = None,
+) -> tuple[Mapping[str, object], ...]:
+    values = diagnostics.get("event_rows", ())
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        return ()
+    return tuple(
+        row
+        for row in values
+        if isinstance(row, Mapping) and (event_predicate is None or event_predicate(row))
+    )
 
 
 def _diagnostic_row(
