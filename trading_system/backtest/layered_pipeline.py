@@ -336,18 +336,25 @@ def _build_context_rows(
             for index in range(start_index, max(0, len(entry) - 1)):
                 latest = entry[index]
                 timestamp_ms = int(getattr(latest, "timestamp_ms"))
-                structure = _candles_until_cached(
-                    candles[profile.structure_timeframe],
-                    candle_timestamps[profile.structure_timeframe],
-                    timestamp_ms,
-                )
-                trend = _candles_until_cached(
-                    candles[profile.trend_timeframe],
-                    candle_timestamps[profile.trend_timeframe],
-                    timestamp_ms,
-                )
-                if not structure or not trend:
-                    continue
+                if fast_context_only:
+                    if not _has_candle_at_or_before(candle_timestamps[profile.structure_timeframe], timestamp_ms):
+                        continue
+                    if not _has_candle_at_or_before(candle_timestamps[profile.trend_timeframe], timestamp_ms):
+                        continue
+                    trend = ()
+                else:
+                    structure = _candles_until_cached(
+                        candles[profile.structure_timeframe],
+                        candle_timestamps[profile.structure_timeframe],
+                        timestamp_ms,
+                    )
+                    trend = _candles_until_cached(
+                        candles[profile.trend_timeframe],
+                        candle_timestamps[profile.trend_timeframe],
+                        timestamp_ms,
+                    )
+                    if not structure or not trend:
+                        continue
                 regime = None if fast_context_only else build_market_regime(trend)
                 volume = (
                     {}
@@ -684,22 +691,29 @@ def _input_from_filter_row(
     preset: BacktestPresetConfig,
     *,
     candle_cache: dict[tuple[str, str, str, str, str], tuple[object, ...]] | None = None,
+    execution_timeframe: str | None = None,
 ) -> BacktestSignalInput | None:
     profile = get_profile(str(row["profile"]))
+    execution_bar = execution_timeframe or profile.entry_timeframe
     target = BacktestScanTarget(
         canonical_symbol=str(row["symbol"]),
         inst_id=str(row["inst_id"]),
         venue=str(row["venue"]),
         inst_type=str(row["inst_type"]),
     )
-    cache_key = (target.inst_id, target.venue, target.inst_type, profile.entry_timeframe, str(row["symbol"]))
+    cache_key = (target.inst_id, target.venue, target.inst_type, execution_bar, str(row["symbol"]))
     if candle_cache is not None and cache_key in candle_cache:
         entry = candle_cache[cache_key]
     else:
-        entry = _load_timeframe(repository, target, profile.entry_timeframe, preset)
+        entry = _load_timeframe(repository, target, execution_bar, preset)
         if candle_cache is not None:
             candle_cache[cache_key] = entry
-    execution_candles = tuple(candle for candle in entry if int(getattr(candle, "timestamp_ms")) > int(row["timestamp_ms"]))[: preset.execution.max_holding_bars]
+    boundary = int(row.get("event_available_time_ms") or row["timestamp_ms"])
+    execution_candles = tuple(
+        candle
+        for candle in entry
+        if int(getattr(candle, "timestamp_ms")) > boundary
+    )[: preset.execution.max_holding_bars]
     if not execution_candles:
         return None
     signal = StrategySignal(
@@ -1088,6 +1102,10 @@ def _candles_until_cached(
     if max_bars is not None and max_bars > 0:
         return tuple(candles[max(0, end - max_bars) : end])
     return tuple(candles[:end])
+
+
+def _has_candle_at_or_before(timestamps: Sequence[int], timestamp_ms: int) -> bool:
+    return bisect_right(timestamps, timestamp_ms) > 0
 
 
 def _candle_timestamps(candles: Sequence[object]) -> tuple[int, ...]:

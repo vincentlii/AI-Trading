@@ -14,6 +14,9 @@ from research_pipeline.core.reports.tc_family_profit_and_execution_optimization 
 from research_pipeline.runners.tc_family_profit_execution_optimization import (
     OPTIMIZATION_VARIANT_IDS,
     BASELINE_VARIANT_IDS,
+    SOURCE_VARIANT_BY_OPTIMIZATION,
+    _exit_policy_name,
+    _filter_profile_rows,
     select_profit_execution_decision,
 )
 
@@ -82,6 +85,24 @@ class TcFamilyProfitExecutionOptimizationTests(unittest.TestCase):
                 "ce_lifecycle_shallow_momentum_v1",
                 "bp_shallow_momentum_capped_risk_v3",
             ),
+        )
+
+    def test_tc_v1_exit_opt_uses_current_level_zone_baseline(self) -> None:
+        self.assertEqual(
+            SOURCE_VARIANT_BY_OPTIMIZATION["bp_tc_v1_exit_opt"],
+            "bp_lifecycle_level_zone_v1",
+        )
+        self.assertEqual(_exit_policy_name("bp_tc_v1_exit_opt"), "proposal_tc_v1_exit_opt")
+
+    def test_profile_filter_keeps_only_requested_profile(self) -> None:
+        rows = (
+            {"candidate_id": "b", "profile": "B"},
+            {"candidate_id": "c", "profile": "C"},
+        )
+
+        self.assertEqual(
+            _filter_profile_rows(rows, ("C",)),
+            ({"candidate_id": "c", "profile": "C"},),
         )
         self.assertEqual(
             OPTIMIZATION_VARIANT_IDS,

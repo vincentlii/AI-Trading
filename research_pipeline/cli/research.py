@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from research_pipeline.core.analytics.aggregation import AggregationResult
@@ -40,6 +42,7 @@ from research_pipeline.runners.strategy_expansion_diagnostics import run_strateg
 from research_pipeline.runners.strategy_summary import build_strategy_summary
 from research_pipeline.runners.strategy_dry_run import run_strategy_dry_run
 from research_pipeline.runners.tc_family_trade_count_expansion import run_tc_family_trade_count_expansion
+from research_pipeline.runners.tc_family_causal_entry_smoke import run_tc_family_causal_entry_smoke
 from research_pipeline.runners.tc_family_profit_execution_optimization import (
     run_tc_family_profit_execution_optimization,
 )
@@ -54,8 +57,47 @@ from research_pipeline.runners.tc_family_final_regime_aware_refinement import (
 )
 from research_pipeline.registry.strategy_registry import default_strategy_registry
 from research_pipeline.runners.validate_artifacts import validate_artifact_index
-from trading_system.config import load_backtest_preset
+from trading_system.config import apply_parameter_proposal, load_backtest_preset, load_parameter_proposal
 from trading_system.data.history import DuckDbCandleRepository
+from trading_system.timeframe_profiles import get_profile
+
+
+def _utc_date_bounds(start_date: str, end_date: str) -> tuple[int, int, int]:
+    start = datetime.fromisoformat(start_date).replace(tzinfo=UTC)
+    end_exclusive = datetime.fromisoformat(end_date).replace(tzinfo=UTC) + timedelta(days=1)
+    if start >= end_exclusive:
+        raise ValueError("TC validation start must be on or before end")
+    return (
+        int(start.timestamp() * 1000),
+        int(end_exclusive.timestamp() * 1000) - 1,
+        int(end_exclusive.timestamp() * 1000),
+    )
+
+
+def _candidate_cutoff_ms(
+    *,
+    end_exclusive_ms: int,
+    entry_timeframes: tuple[str, ...],
+    max_holding_bars: int,
+) -> int:
+    timeframe_ms = max(_timeframe_milliseconds(value) for value in entry_timeframes)
+    return int(end_exclusive_ms) - (max(0, int(max_holding_bars)) + 1) * timeframe_ms
+
+
+def _timeframe_milliseconds(timeframe: str) -> int:
+    unit = timeframe[-1].lower()
+    value = int(timeframe[:-1])
+    multipliers = {"m": 60_000, "h": 3_600_000, "d": 86_400_000}
+    if unit not in multipliers or value <= 0:
+        raise ValueError(f"unsupported timeframe for candidate cutoff: {timeframe}")
+    return value * multipliers[unit]
+
+
+def _with_scan_profiles(preset, profiles: tuple[str, ...]):
+    normalized = tuple(dict.fromkeys(str(value).upper() for value in profiles))
+    for profile in normalized:
+        get_profile(profile)
+    return replace(preset, scan=replace(preset.scan, profile_keys=normalized))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -213,11 +255,24 @@ def main(argv: list[str] | None = None) -> int:
     tc_family_expansion.add_argument("--preset", required=True)
     tc_family_expansion.add_argument("--db", required=True)
     tc_family_expansion.add_argument("--dataset-window", required=True)
+    tc_family_expansion.add_argument("--start")
+    tc_family_expansion.add_argument("--end")
     tc_family_expansion.add_argument("--output-root")
     tc_family_expansion.add_argument("--max-entry-windows", type=int)
     tc_family_expansion.add_argument("--cost-tier", action="append", default=None)
+    tc_family_expansion.add_argument("--profile", action="append", default=None)
     tc_family_expansion.add_argument("--chunk-size", type=int, default=20)
     tc_family_expansion.add_argument("--format", choices=("json", "markdown"), default="json")
+
+    tc_causal_entry = subparsers.add_parser("tc-family-causal-entry-smoke")
+    tc_causal_entry.add_argument("--preset", required=True)
+    tc_causal_entry.add_argument("--db", required=True)
+    tc_causal_entry.add_argument("--source-candidates", required=True)
+    tc_causal_entry.add_argument("--profile-b-source-candidates")
+    tc_causal_entry.add_argument("--dataset-window", required=True)
+    tc_causal_entry.add_argument("--output-root")
+    tc_causal_entry.add_argument("--cost-tier", action="append", default=None)
+    tc_causal_entry.add_argument("--format", choices=("json", "markdown"), default="json")
 
     tc_family_profit = subparsers.add_parser("tc-family-profit-execution-optimization")
     tc_family_profit.add_argument("--preset", required=True)
@@ -226,6 +281,9 @@ def main(argv: list[str] | None = None) -> int:
     tc_family_profit.add_argument("--baseline-run-root", required=True)
     tc_family_profit.add_argument("--output-root")
     tc_family_profit.add_argument("--cost-tier", action="append", default=None)
+    tc_family_profit.add_argument("--proposal")
+    tc_family_profit.add_argument("--variant", action="append", default=None)
+    tc_family_profit.add_argument("--profile", action="append", default=None)
     tc_family_profit.add_argument("--format", choices=("json", "markdown"), default="json")
 
     tc_family_cost_exit = subparsers.add_parser("tc-family-cost-aware-exit-target")
@@ -625,6 +683,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "tc-family-trade-count-expansion":
         preset = load_backtest_preset(args.preset)
+        if args.profile:
+            preset = _with_scan_profiles(preset, tuple(args.profile))
+        candidate_end_ms = None
+        if bool(args.start) != bool(args.end):
+            parser.error("tc-family-trade-count-expansion requires --start and --end together")
+        if args.start and args.end:
+            start_ms, end_ms, end_exclusive_ms = _utc_date_bounds(args.start, args.end)
+            preset = replace(preset, scan=replace(preset.scan, start_ms=start_ms, end_ms=end_ms))
+            candidate_end_ms = _candidate_cutoff_ms(
+                end_exclusive_ms=end_exclusive_ms,
+                entry_timeframes=tuple(get_profile(key).entry_timeframe for key in preset.scan.profile_keys),
+                max_holding_bars=preset.execution.max_holding_bars,
+            )
         repository = DuckDbCandleRepository(Path(args.db))
         output_root = (
             Path(args.output_root)
@@ -637,6 +708,7 @@ def main(argv: list[str] | None = None) -> int:
             dataset_window=args.dataset_window,
             output_root=output_root,
             max_entry_windows=args.max_entry_windows,
+            candidate_end_ms=candidate_end_ms,
             cost_tiers=tuple(args.cost_tier or ("base", "stress", "harsh")),
             chunk_size=args.chunk_size,
         )
@@ -645,8 +717,35 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(result.as_json())
         return 0
+    if args.command == "tc-family-causal-entry-smoke":
+        preset = load_backtest_preset(args.preset)
+        repository = DuckDbCandleRepository(Path(args.db))
+        output_root = (
+            Path(args.output_root)
+            if args.output_root
+            else Path("storage") / "research_runs" / "trend_continuation_family" / "tc_causal_entry_rescue_v1"
+        )
+        result = run_tc_family_causal_entry_smoke(
+            repository=repository,
+            preset=preset,
+            source_candidate_rows=Path(args.source_candidates),
+            profile_b_source_candidate_rows=(
+                Path(args.profile_b_source_candidates) if args.profile_b_source_candidates else None
+            ),
+            output_root=output_root,
+            dataset_window=args.dataset_window,
+            cost_tiers=tuple(args.cost_tier or ("base", "stress", "harsh")),
+        )
+        if args.format == "markdown":
+            print(Path(result.report_path).read_text(encoding="utf-8"))
+        else:
+            print(json.dumps(result.as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
     if args.command == "tc-family-profit-execution-optimization":
         preset = load_backtest_preset(args.preset)
+        proposal = load_parameter_proposal(args.proposal) if args.proposal else None
+        if proposal is not None:
+            preset = apply_parameter_proposal(preset, proposal)
         repository = DuckDbCandleRepository(Path(args.db))
         output_root = (
             Path(args.output_root)
@@ -660,6 +759,9 @@ def main(argv: list[str] | None = None) -> int:
             baseline_run_root=Path(args.baseline_run_root),
             output_root=output_root,
             cost_tiers=tuple(args.cost_tier or ("base", "stress", "harsh")),
+            optimization_variant_ids=tuple(args.variant) if args.variant else None,
+            profile_filter=tuple(args.profile or ()),
+            proposal_id=proposal.proposal_id if proposal is not None else None,
         )
         if args.format == "markdown":
             print(Path(result.report_path).read_text(encoding="utf-8"))

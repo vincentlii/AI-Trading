@@ -49,7 +49,7 @@ class TcFamilyEventStore:
             connection.executemany("INSERT OR REPLACE INTO context_rows VALUES (?, ?)", payloads)
 
     def append_event_rows(self, rows: Sequence[Mapping[str, object]]) -> None:
-        payloads = []
+        payload_by_key = {}
         for row in rows:
             context_key = str(row.get("context_key") or "")
             lifecycle_id = str(row.get("lifecycle_event_id") or row.get("breakout_event_id") or "")
@@ -60,11 +60,20 @@ class TcFamilyEventStore:
             )
             payload = dict(row)
             payload.update({"context_key": context_key, "event_key": event_key})
-            payloads.append((event_key, context_key, lifecycle_id, json.dumps(payload, ensure_ascii=False, sort_keys=True)))
+            payload_by_key.setdefault(
+                event_key,
+                (
+                    event_key,
+                    context_key,
+                    lifecycle_id,
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+        payloads = list(payload_by_key.values())
         if not payloads:
             return
         with self._connect() as connection:
-            connection.executemany("INSERT OR REPLACE INTO event_rows VALUES (?, ?, ?, ?)", payloads)
+            connection.executemany("INSERT OR IGNORE INTO event_rows VALUES (?, ?, ?, ?)", payloads)
 
     def load_context_rows(self) -> tuple[dict[str, object], ...]:
         return self._load_payloads("context_rows", "context_key")
@@ -73,17 +82,15 @@ class TcFamilyEventStore:
         return self._load_payloads("event_rows", "event_key")
 
     def iter_event_batches(self, batch_size: int = 5000):
-        offset = 0
+        last_event_key = None
         while True:
+            query, parameters = _event_batch_query(last_event_key=last_event_key, batch_size=batch_size)
             with self._connect() as connection:
-                values = connection.execute(
-                    "SELECT payload FROM event_rows ORDER BY event_key LIMIT ? OFFSET ?",
-                    [int(batch_size), int(offset)],
-                ).fetchall()
+                values = connection.execute(query, parameters).fetchall()
             if not values:
                 return
-            yield tuple(json.loads(str(value[0])) for value in values)
-            offset += len(values)
+            yield tuple(json.loads(str(value[1])) for value in values)
+            last_event_key = str(values[-1][0])
 
     def mark_progress(self, *, processed_windows: int) -> None:
         with self._connect() as connection:
@@ -152,6 +159,18 @@ class TcFamilyEventStore:
     @staticmethod
     def _set_metadata(connection, key: str, value: str) -> None:
         connection.execute("INSERT OR REPLACE INTO metadata VALUES (?, ?)", [key, value])
+
+
+def _event_batch_query(*, last_event_key: str | None, batch_size: int) -> tuple[str, list[object]]:
+    if last_event_key is None:
+        return (
+            "SELECT event_key, payload FROM event_rows ORDER BY event_key LIMIT ?",
+            [int(batch_size)],
+        )
+    return (
+        "SELECT event_key, payload FROM event_rows WHERE event_key > ? ORDER BY event_key LIMIT ?",
+        [last_event_key, int(batch_size)],
+    )
 
 
 __all__ = ("FamilyCacheFingerprintError", "TcFamilyEventStore")

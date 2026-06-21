@@ -1,8 +1,8 @@
 ---
 type: strategy-family
 strategy_family: breakout_pullback_continuation
-status: diagnostic_candidate_subtype_refactor
-updated: 2026-06-08
+status: research_stopped
+updated: 2026-06-22
 tags:
   - strategy/pa-vpa
   - strategy/implemented
@@ -10,7 +10,7 @@ tags:
 
 # 04_breakout_pullback_continuation
 
-结论：`breakout_pullback` 已完成 shared trend-continuation core rebuild。新内核解决了旧 `true_breakout` 过早一票否决，但整体 BP 仍不是 formal candidate；当前判定为 C：只允许对 `shallow_pullback_momentum` 子型做一次受限 proposal-only validation。
+结论：`breakout_pullback` / TC 研究已停止。旧盈利 snapshot 存在 causal event/entry 语义问题；修正后 Profile C 4H 与 Profile B 1H causal rescue 均为负期望，因此无 formal candidate，不进入 validation-prep 或 P6。
 
 ## 定位
 
@@ -200,7 +200,7 @@ regime 诊断：
 长期结论：
 
 - `trend_state` split 有诊断价值，但本轮 regime-aware policy routing 没有稳定改善 harsh。
-- `bp_shallow_cost_aware_admission_v3` 仍是当前 TC family 最稳 diagnostic baseline，但未达到 validation-prep。
+- `bp_shallow_cost_aware_admission_v3` 是当时最稳的 diagnostic baseline，但已被 2026-06-22 causal audit 标记为 historical invalidated evidence。
 - 暂停 TC family refinement；后续若继续，应先做 read-only LR 互补性分析或 simple support/resistance fixed-RR baseline 对照，而不是继续局部调 BP shallow。
 
 ## 2026-06-08 cleanup and preservation
@@ -226,7 +226,7 @@ TC family best diagnostic snapshot 已固化：
 清理口径：保留 v3 最佳复现链路、final reports、audit、metric recompute、regression baseline；删除 partial capture、momentum failure、regime adaptive exit、regime cost gate 等失败/重复 replay variant 目录。LR final evidence 未触碰。
 ## 2026-06-08 Codex Skills 同步口径
 
-`breakout_pullback` 当前仅保留 `bp_shallow_cost_aware_admission_v3` diagnostic snapshot。后续若做 simple baseline 对照或重新研究 BP shallow，必须走 `trading-system-research-pipeline-runner`、`trading-system-full-audit-gate-checker` 和 `trading-system-backtest-report-analyst`；不得继续局部调参、手工筛 regime 或把 diagnostic snapshot 写成 formal candidate。
+`breakout_pullback` 当前仅保留 `bp_shallow_cost_aware_admission_v3` 作为 historical invalidated snapshot。后续若提出不同的上游机制，必须走 `trading-system-research-pipeline-runner`、`trading-system-full-audit-gate-checker` 和 `trading-system-backtest-report-analyst`；不得继续局部调参、手工筛 regime 或把旧 snapshot 写成 formal candidate。
 
 ## 2026-06-13 TC Exit Counterfactual Diagnostic
 

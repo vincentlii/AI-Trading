@@ -58,11 +58,15 @@ OPTIMIZATION_VARIANT_IDS = (
     "bp_shallow_cost_quality_v1",
 )
 
+TC_V1_EXIT_OPT_VARIANT_ID = "bp_tc_v1_exit_opt"
+SUPPORTED_OPTIMIZATION_VARIANT_IDS = (*OPTIMIZATION_VARIANT_IDS, TC_V1_EXIT_OPT_VARIANT_ID)
+
 SOURCE_VARIANT_BY_OPTIMIZATION = {
     "bp_shallow_exit_efficiency_v1": "bp_shallow_momentum_capped_risk_v3",
     "ce_shallow_exit_efficiency_v1": "ce_lifecycle_shallow_momentum_v1",
     "bp_shallow_entry_timing_v1": "bp_shallow_momentum_capped_risk_v3",
     "bp_shallow_cost_quality_v1": "bp_shallow_momentum_capped_risk_v3",
+    TC_V1_EXIT_OPT_VARIANT_ID: "bp_lifecycle_level_zone_v1",
 }
 
 
@@ -91,11 +95,21 @@ def run_tc_family_profit_execution_optimization(
     baseline_run_root: Path,
     output_root: Path,
     cost_tiers: Sequence[str] = ("base", "stress", "harsh"),
+    optimization_variant_ids: Sequence[str] | None = None,
+    profile_filter: Sequence[str] = (),
+    proposal_id: str | None = None,
     timestamp: datetime | None = None,
 ) -> TcFamilyProfitExecutionOptimizationResult:
     baseline_run_root = Path(baseline_run_root)
     output_root = Path(output_root)
     now = timestamp or datetime.now(timezone.utc)
+    selected_variants = _selected_optimization_variants(optimization_variant_ids)
+    selected_profiles = tuple(dict.fromkeys(profile_filter))
+    selected_baselines = (
+        BASELINE_VARIANT_IDS
+        if optimization_variant_ids is None
+        else tuple(dict.fromkeys(SOURCE_VARIANT_BY_OPTIMIZATION[variant] for variant in selected_variants))
+    )
     fingerprint = stable_fingerprint(
         {
             "round": "tc_family_profit_execution_optimization",
@@ -103,8 +117,10 @@ def run_tc_family_profit_execution_optimization(
             "dataset_window": dataset_window,
             "config_fingerprint": preset.config_fingerprint,
             "core_engine_version": CORE_ENGINE_VERSION,
-            "baseline_variants": BASELINE_VARIANT_IDS,
-            "optimization_variants": OPTIMIZATION_VARIANT_IDS,
+            "baseline_variants": selected_baselines,
+            "optimization_variants": selected_variants,
+            "profile_filter": selected_profiles,
+            "proposal_id": proposal_id,
         }
     )
     run_id = f"{now.strftime('%Y%m%dT%H%M%SZ')}_{fingerprint[:12]}"
@@ -113,11 +129,11 @@ def run_tc_family_profit_execution_optimization(
 
     baseline_summaries: dict[str, Any] = {}
     artifact_paths: list[str] = []
-    for variant_id in BASELINE_VARIANT_IDS:
-        source = _load_baseline_artifacts(baseline_run_root, variant_id)
+    for variant_id in selected_baselines:
+        source = _filter_source_profiles(_load_baseline_artifacts(baseline_run_root, variant_id), selected_profiles)
         enriched = enrich_execution_path_rows(source["closed_rows"])
         path_summary = summarize_execution_path_rows(enriched)
-        summary = {**source["variant_summary"], "path_diagnostics": path_summary}
+        summary = _profile_scoped_baseline_summary(source, path_summary=path_summary, profiles=selected_profiles)
         baseline_summaries[variant_id] = summary
         baseline_dir = run_root / "baseline_diagnostics" / variant_id
         baseline_dir.mkdir(parents=True, exist_ok=True)
@@ -126,9 +142,9 @@ def run_tc_family_profit_execution_optimization(
         artifact_paths.append(str(baseline_dir))
 
     optimization_summaries: dict[str, Any] = {}
-    for variant_id in OPTIMIZATION_VARIANT_IDS:
+    for variant_id in selected_variants:
         source_variant = SOURCE_VARIANT_BY_OPTIMIZATION[variant_id]
-        source = _load_baseline_artifacts(baseline_run_root, source_variant)
+        source = _filter_source_profiles(_load_baseline_artifacts(baseline_run_root, source_variant), selected_profiles)
         output_dir = run_root / "variants" / variant_id
         summary = _run_optimization_variant(
             variant_id=variant_id,
@@ -139,6 +155,8 @@ def run_tc_family_profit_execution_optimization(
             dataset_window=dataset_window,
             output_dir=output_dir,
             cost_tiers=tuple(cost_tiers),
+            profile_filter=selected_profiles,
+            proposal_id=proposal_id,
         )
         optimization_summaries[variant_id] = summary
         artifact_paths.append(str(output_dir))
@@ -159,6 +177,7 @@ def run_tc_family_profit_execution_optimization(
             "diagnostic/proposal/summary rows remain excluded from performance",
             "LR final evidence remains read-only and is not included in this round's performance",
             "capped risk sizing remains proposal-only with minimum actual risk after cap of 0.10% equity",
+            f"profile filter is fixed to {list(selected_profiles) if selected_profiles else 'all source profiles'}",
         ],
         "baseline_summaries": baseline_summaries,
         "optimization_summaries": optimization_summaries,
@@ -228,6 +247,8 @@ def _run_optimization_variant(
     dataset_window: str,
     output_dir: Path,
     cost_tiers: Sequence[str],
+    profile_filter: Sequence[str] = (),
+    proposal_id: str | None = None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     candidate_rows = tuple(dict(row, variant_id=variant_id, source_variant_id=source_variant) for row in source["candidate_rows"])
@@ -300,6 +321,8 @@ def _run_optimization_variant(
             "source_variant_id": source_variant,
             "sizing_policy": "capped_risk_sizing_proposal_only",
             "exit_policy": _exit_policy_name(variant_id),
+            "profile_filter": list(profile_filter),
+            "proposal_id": proposal_id,
         },
         baseline_ref=str(source["variant_dir"]),
         proposal_only=True,
@@ -595,7 +618,65 @@ def _load_baseline_artifacts(baseline_run_root: Path, variant_id: str) -> dict[s
     }
 
 
+def _selected_optimization_variants(requested: Sequence[str] | None) -> tuple[str, ...]:
+    selected = tuple(dict.fromkeys(requested or OPTIMIZATION_VARIANT_IDS))
+    unsupported = [variant for variant in selected if variant not in SUPPORTED_OPTIMIZATION_VARIANT_IDS]
+    if unsupported:
+        raise ValueError(f"unsupported TC optimization variants: {unsupported}")
+    return selected
+
+
+def _filter_profile_rows(
+    rows: Sequence[Mapping[str, object]],
+    profiles: Sequence[str],
+) -> tuple[dict[str, object], ...]:
+    allowed = set(profiles)
+    return tuple(dict(row) for row in rows if not allowed or str(row.get("profile")) in allowed)
+
+
+def _filter_source_profiles(source: Mapping[str, Any], profiles: Sequence[str]) -> dict[str, Any]:
+    if not profiles:
+        return dict(source)
+    payload = dict(source)
+    for key in ("candidate_rows", "filter_rows", "closed_rows"):
+        payload[key] = _filter_profile_rows(source[key], profiles)
+    return payload
+
+
+def _profile_scoped_baseline_summary(
+    source: Mapping[str, Any],
+    *,
+    path_summary: Mapping[str, object],
+    profiles: Sequence[str],
+) -> dict[str, object]:
+    summary = {**source["variant_summary"], "path_diagnostics": dict(path_summary)}
+    if not profiles:
+        return summary
+    closed_rows = source["closed_rows"]
+    tier_metrics = {
+        tier: _metrics([row for row in closed_rows if row.get("cost_tier") == tier])
+        for tier in ("base", "stress", "harsh")
+    }
+    base_rows = [row for row in closed_rows if row.get("cost_tier") == "base"]
+    summary.update(
+        {
+            "closed_trades": len(base_rows),
+            "base_net_R_avg": tier_metrics["base"].get("net_R_avg"),
+            "stress_net_R_avg": tier_metrics["stress"].get("net_R_avg"),
+            "harsh_net_R_avg": tier_metrics["harsh"].get("net_R_avg"),
+            "total_R": tier_metrics["base"].get("total_net_R"),
+            "PF": tier_metrics["base"].get("profit_factor"),
+            "median_R": tier_metrics["base"].get("median_R"),
+            "profile_split": dict(Counter(str(row.get("profile") or "unknown") for row in base_rows)),
+            "profile_filter": list(profiles),
+        }
+    )
+    return summary
+
+
 def _exit_policy_name(variant_id: str) -> str:
+    if variant_id == TC_V1_EXIT_OPT_VARIANT_ID:
+        return "proposal_tc_v1_exit_opt"
     if "exit_efficiency" in variant_id:
         return "proposal_advanced_exit_partial_breakeven_chandelier"
     if "entry_timing" in variant_id:
@@ -677,6 +758,8 @@ def _num(value: object) -> float | None:
 __all__ = (
     "BASELINE_VARIANT_IDS",
     "OPTIMIZATION_VARIANT_IDS",
+    "SUPPORTED_OPTIMIZATION_VARIANT_IDS",
+    "TC_V1_EXIT_OPT_VARIANT_ID",
     "TcFamilyProfitExecutionOptimizationResult",
     "run_tc_family_profit_execution_optimization",
     "select_profit_execution_decision",

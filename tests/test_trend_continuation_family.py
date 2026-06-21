@@ -90,6 +90,13 @@ class TrendContinuationFamilyTests(unittest.TestCase):
         self.assertEqual(selected[0]["variant"], "bp_lifecycle_level_zone_v1")
         self.assertEqual(selected[0]["row_type"], "proposal_candidate")
 
+    def test_candidate_uses_confirmed_context_as_signal_and_feature_cutoff(self) -> None:
+        selected = select_family_candidates((_event(),), "bp_lifecycle_level_zone_v1")
+
+        self.assertEqual(selected[0]["signal_time"], 1_700_000_600_000)
+        self.assertEqual(selected[0]["feature_cutoff_time"], 1_700_000_600_000)
+        self.assertEqual(selected[0]["relaunch_time"], 1_700_000_360_000)
+
     def test_compact_family_event_keeps_replay_fields_without_full_diagnostic_payload(self) -> None:
         compact = compact_family_event(
             _event(
