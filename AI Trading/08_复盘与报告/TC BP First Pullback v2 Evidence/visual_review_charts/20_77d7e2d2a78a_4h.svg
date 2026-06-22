@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2240" height="680" viewBox="0 0 2240 680">
+<rect width="100%" height="100%" fill="#f8fafc"/>
+<text x="80" y="30" font-family="Arial" font-size="18" font-weight="700" fill="#111827">4H lifecycle | BTC-USDT-SWAP:1723276800000:long:strict_shallow_pullback_v2_balanced</text>
+<text x="80" y="52" font-family="Arial" font-size="12" fill="#475569">LONG | signal=2024-08-10 18:00 UTC | entry=2024-08-10 18:15 UTC | exit=n/a | </text>
+<rect x="80" y="64" width="1910" height="530" fill="#ffffff" stroke="#cbd5e1"/>
+<rect x="80" y="475.04" width="1910" height="16.72" fill="#dbeafe" opacity="0.65" data-zone-band="true"/>
+<line x1="80" y1="594.00" x2="1990" y2="594.00" stroke="#e2e8f0"/>
+<text x="72" y="598.00" text-anchor="end" font-family="Arial" font-size="11" fill="#64748b">56085.38</text>
+<line x1="80" y1="488.00" x2="1990" y2="488.00" stroke="#e2e8f0"/>
+<text x="72" y="492.00" text-anchor="end" font-family="Arial" font-size="11" fill="#64748b">57781.36</text>
+<line x1="80" y1="382.00" x2="1990" y2="382.00" stroke="#e2e8f0"/>
+<text x="72" y="386.00" text-anchor="end" font-family="Arial" font-size="11" fill="#64748b">59477.35</text>
+<line x1="80" y1="276.00" x2="1990" y2="276.00" stroke="#e2e8f0"/>
+<text x="72" y="280.00" text-anchor="end" font-family="Arial" font-size="11" fill="#64748b">61173.33</text>
+<line x1="80" y1="170.00" x2="1990" y2="170.00" stroke="#e2e8f0"/>
+<text x="72" y="174.00" text-anchor="end" font-family="Arial" font-size="11" fill="#64748b">62869.32</text>
+<line x1="80" y1="64.00" x2="1990" y2="64.00" stroke="#e2e8f0"/>
+<text x="72" y="68.00" text-anchor="end" font-family="Arial" font-size="11" fill="#64748b">64565.30</text>
+<line x1="80.00" y1="493.15" x2="80.00" y2="537.91" stroke="#16a34a" stroke-width="1.4"/>
+<rect x="71.00" y="516.52" width="18.00" height="8.56" fill="#16a34a" opacity="0.85"/>
+<line x1="186.11" y1="378.02" x2="186.11" y2="557.45" stroke="#16a34a" stroke-width="1.4"/>
+<rect x="177.11" y="385.46" width="18.00" height="131.06" fill="#16a34a" opacity="0.85"/>
+<line x1="292.22" y1="356.42" x2="292.22" y2="397.15" stroke="#dc2626" stroke-width="1.4"/>
+<rect x="283.22" y="385.40" width="18.00" height="1.00" fill="#dc2626" opacity="0.85"/>
+<line x1="398.33" y1="176.46" x2="398.33" y2="393.42" stroke="#16a34a" stroke-width="1.4"/>
+<rect x="389.33" y="243.26" width="18.00" height="142.85" fill="#16a34a" opacity="0.85"/>
+<line x1="504.44" y1="239.67" x2="504.44" y2="301.21" stroke="#dc2626" stroke-width="1.4"/>
+<rect x="495.44" y="243.58" width="18.00" height="20.76" fill="#dc2626" opacity="0.85"/>
+<line x1="610.56" y1="261.83" x2="610.56" y2="313.08" stroke="#dc2626" stroke-width="1.4"/>
+<rect x="601.56" y="264.33" width="18.00" height="30.33" fill="#dc2626" opacity="0.85"/>
+<line x1="716.67" y1="273.43" x2="716.67" y2="339.31" stroke="#dc2626" stroke-width="1.4"/>
+<rect x="707.67" y="294.66" width="18.00" height="13.48" fill="#dc2626" opacity="0.85"/>
+<line x1="822.78" y1="278.50" x2="822.78" y2="379.20" stroke="#dc2626" stroke-width="1.4"/>
+<rect x="813.78" y="308.13" width="18.00" height="52.41" fill="#dc2626" opacity="0.85"/>
+<line x1="928.89" y1="301.01" x2="928.89" y2="366.33" stroke="#16a34a" stroke-width="1.4"/>
+<rect x="919.89" y="306.70" width="18.00" height="53.85" fill="#16a34a" opacity="0.85"/>
+<line x1="1035.00" y1="287.16" x2="1035.00" y2="354.57" stroke="#16a34a" stroke-width="1.4"/>
+<rect x="1026.00" y="296.71" width="18.00" height="9.99" fill="#16a34a" opacity="0.85"/>
+<line x1="1141.11" y1="256.03" x2="1141.11" y2="331.86" stroke="#dc2626" stroke-width="1.4"/>
+<rect x="1132.11" y="296.71" width="18.00" height="24.66" fill="#dc2626" opacity="0.85"/>
+<line x1="1247.22" y1="296.06" x2="1247.22" y2="334.26" stroke="#16a34a" stroke-width="1.4"/>
+<rect x="1238.22" y="296.71" width="18.00" height="24.67" fill="#16a34a" opacity="0.85"/>
+<line x1="1353.33" y1="279.58" x2="1353.33" y2="310.44" stroke="#16a34a" stroke-width="1.4"/>
+<rect x="1344.33" y="291.48" width="18.00" height="5.23" fill="#16a34a" opacity="0.85"/>
+<line x1="1459.44" y1="289.96" x2="1459.44" y2="323.93" stroke="#dc2626" stroke-width="1.4"/>
+<rect x="1450.44" y="291.48" width="18.00" height="25.53" fill="#dc2626" opacity="0.85"/>
+<line x1="1565.56" y1="271.21" x2="1565.56" y2="323.70" stroke="#16a34a" stroke-width="1.4"/>
+<rect x="1556.56" y="285.70" width="18.00" height="31.31" fill="#16a34a" opacity="0.85"/>
+<line x1="1671.67" y1="275.86" x2="1671.67" y2="302.45" stroke="#dc2626" stroke-width="1.4"/>
+<rect x="1662.67" y="285.69" width="18.00" height="6.18" fill="#dc2626" opacity="0.85"/>
+<line x1="1777.78" y1="261.00" x2="1777.78" y2="293.75" stroke="#16a34a" stroke-width="1.4"/>
+<rect x="1768.78" y="281.50" width="18.00" height="10.37" fill="#16a34a" opacity="0.85"/>
+<line x1="1883.89" y1="269.55" x2="1883.89" y2="294.76" stroke="#16a34a" stroke-width="1.4"/>
+<rect x="1874.89" y="270.64" width="18.00" height="10.86" fill="#16a34a" opacity="0.85"/>
+<line x1="1990.00" y1="227.38" x2="1990.00" y2="323.65" stroke="#dc2626" stroke-width="1.4"/>
+<rect x="1981.00" y="270.58" width="18.00" height="36.49" fill="#dc2626" opacity="0.85"/>
+<line x1="80" y1="300.58" x2="1990" y2="300.58" stroke="#0f766e" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="1998" y="304.58" font-family="Arial" font-size="11" fill="#0f766e">entry 60780.10</text>
+<line x1="80" y1="500.60" x2="1990" y2="500.60" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="1998" y="504.60" font-family="Arial" font-size="11" fill="#dc2626">stop 57579.72</text>
+<line x1="80" y1="100.55" x2="1990" y2="100.55" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="1998" y="104.55" font-family="Arial" font-size="11" fill="#16a34a">target 63980.48</text>
+<line x1="1459.44" y1="64" x2="1459.44" y2="594" stroke="#64748b" stroke-width="1" stroke-dasharray="2 4" opacity="0.55" data-event-marker="trend"/>
+<text x="1463.44" y="78" font-family="Arial" font-size="10" fill="#64748b" data-event-marker="trend">trend</text>
+<line x1="1353.33" y1="64" x2="1353.33" y2="594" stroke="#7c3aed" stroke-width="1" stroke-dasharray="2 4" opacity="0.55" data-event-marker="breakout"/>
+<text x="1357.33" y="78" font-family="Arial" font-size="10" fill="#7c3aed" data-event-marker="breakout">breakout</text>
+<line x1="1565.56" y1="64" x2="1565.56" y2="594" stroke="#2563eb" stroke-width="1" stroke-dasharray="2 4" opacity="0.55" data-event-marker="pullback"/>
+<text x="1569.56" y="78" font-family="Arial" font-size="10" fill="#2563eb" data-event-marker="pullback">pullback</text>
+<line x1="1565.56" y1="64" x2="1565.56" y2="594" stroke="#0f766e" stroke-width="1" stroke-dasharray="2 4" opacity="0.55" data-event-marker="confirm"/>
+<text x="1569.56" y="78" font-family="Arial" font-size="10" fill="#0f766e" data-event-marker="confirm">confirm</text>
+<line x1="1565.56" y1="64" x2="1565.56" y2="594" stroke="#0f766e" stroke-width="1" stroke-dasharray="2 4" opacity="0.55" data-event-marker="signal"/>
+<text x="1569.56" y="78" font-family="Arial" font-size="10" fill="#0f766e" data-event-marker="signal">signal</text>
+<polygon points="1671.67,306.70 1665.37,317.50 1677.97,317.50" fill="#16a34a" stroke="#ffffff" stroke-width="1.2" data-trade-marker="entry"/>
+<text x="80.00" y="636" text-anchor="middle" font-family="Arial" font-size="10" fill="#64748b">2024-08-08 08:00 UTC</text>
+<text x="504.44" y="636" text-anchor="middle" font-family="Arial" font-size="10" fill="#64748b">2024-08-09 00:00 UTC</text>
+<text x="1035.00" y="636" text-anchor="middle" font-family="Arial" font-size="10" fill="#64748b">2024-08-09 20:00 UTC</text>
+<text x="1565.56" y="636" text-anchor="middle" font-family="Arial" font-size="10" fill="#64748b">2024-08-10 16:00 UTC</text>
+<text x="1990.00" y="636" text-anchor="middle" font-family="Arial" font-size="10" fill="#64748b">2024-08-11 08:00 UTC</text>
+<text x="2014" y="64" font-family="Arial" font-size="14" font-weight="700" fill="#111827">Trade</text>
+<text x="2014" y="88" font-family="Arial" font-size="12" fill="#334155">candidate: BTC-USDT-SWAP:1723276800000:long:strict_shallow_pullback_v2_balanced</text>
+<text x="2014" y="112" font-family="Arial" font-size="12" fill="#334155">trade: </text>
+<text x="2014" y="136" font-family="Arial" font-size="12" fill="#334155">side: LONG</text>
+<text x="2014" y="160" font-family="Arial" font-size="12" fill="#334155">exit: </text>
+<text x="2014" y="184" font-family="Arial" font-size="12" fill="#334155">net_R: n/a</text>
+<text x="2014" y="208" font-family="Arial" font-size="12" fill="#334155">MFE_R: n/a</text>
+<text x="2014" y="232" font-family="Arial" font-size="12" fill="#334155">MAE_R: n/a</text>
+</svg>

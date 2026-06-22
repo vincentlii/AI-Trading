@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from trading_system.data.okx_cli import Candle
 from trading_system.strategies.trend_price_volume_v1.tc_bp_strict_causal import (
@@ -8,14 +10,22 @@ from trading_system.strategies.trend_price_volume_v1.tc_bp_strict_causal import 
     FIFTEEN_MINUTES_MS,
     StrictBpPolicy,
     StrictLevel,
+    balanced_v2_policy,
     breakout_direction,
+    clean_v2_policy,
     confirmed_swing_levels,
+    find_first_pullback_candidate_v2,
     find_first_15m_bos,
     pullback_is_valid,
     repeated_boundary_levels,
     structural_trend_direction,
 )
-from research_pipeline.runners.tc_bp_strict_causal_smoke import audit_event_rows, evaluate_signal_gate
+from research_pipeline.runners.tc_bp_strict_causal_smoke import (
+    HOLDOUT_START,
+    audit_event_rows,
+    evaluate_signal_gate,
+    run_tc_bp_strict_causal_smoke,
+)
 
 
 def candle(
@@ -178,6 +188,103 @@ class StrictBpSignalTests(unittest.TestCase):
 
         self.assertEqual(bos.status, "failed_before_confirmation")
 
+    def test_v2_uses_running_extreme_and_accepts_first_shallow_pullback(self) -> None:
+        rows = (
+            candle(0, 99, 103, 98, 102),
+            candle(1, 102, 106, 101, 105),
+            candle(2, 105, 112, 105.5, 111),
+            candle(3, 111, 112, 108, 109),
+        )
+
+        candidate = find_first_pullback_candidate_v2(
+            rows,
+            breakout_index=0,
+            acceptance_index=1,
+            direction="long",
+            level=self.level,
+            atr=10.0,
+            policy=balanced_v2_policy(),
+        )
+
+        self.assertEqual(candidate.status, "accepted")
+        self.assertEqual(candidate.attempt_number, 1)
+        self.assertEqual(candidate.pullback_bar_time, rows[3].timestamp_ms)
+        self.assertAlmostEqual(candidate.pre_pullback_extension_atr or 0.0, 1.14)
+        self.assertAlmostEqual(candidate.retrace_ratio or 0.0, 4.0 / 11.4)
+
+    def test_v2_preserves_second_attempt_with_visual_risk(self) -> None:
+        rows = (
+            candle(0, 99, 103, 98, 102),
+            candle(1, 102, 106, 101, 105),
+            candle(2, 105, 106, 105.4, 105.5),
+            candle(3, 105.5, 108, 105.4, 107.5),
+            candle(4, 107.5, 108, 105.0, 106.0),
+        )
+
+        candidate = find_first_pullback_candidate_v2(
+            rows,
+            breakout_index=0,
+            acceptance_index=1,
+            direction="long",
+            level=self.level,
+            atr=10.0,
+            policy=balanced_v2_policy(),
+        )
+
+        self.assertEqual(candidate.status, "accepted_with_visual_risk")
+        self.assertEqual(candidate.attempt_number, 2)
+        self.assertIn("second_pullback_attempt", candidate.visual_risk_flags)
+
+    def test_v2_rejects_close_back_inside_level(self) -> None:
+        rows = (
+            candle(0, 99, 103, 98, 102),
+            candle(1, 102, 106, 101, 105),
+            candle(2, 105, 106, 99.8, 100.0),
+        )
+
+        candidate = find_first_pullback_candidate_v2(
+            rows,
+            breakout_index=0,
+            acceptance_index=1,
+            direction="long",
+            level=self.level,
+            atr=10.0,
+            policy=balanced_v2_policy(),
+        )
+
+        self.assertEqual(candidate.status, "rejected")
+        self.assertEqual(candidate.semantic_failure_reason, "deep_reentry_inside_range")
+
+    def test_v2_rejects_extension_beyond_hard_cap(self) -> None:
+        rows = (
+            candle(0, 99, 103, 98, 102),
+            candle(1, 102, 106, 101, 105),
+            candle(2, 105, 130, 104, 129),
+            candle(3, 129, 130, 126, 127),
+        )
+
+        candidate = find_first_pullback_candidate_v2(
+            rows,
+            breakout_index=0,
+            acceptance_index=1,
+            direction="long",
+            level=self.level,
+            atr=10.0,
+            policy=balanced_v2_policy(),
+        )
+
+        self.assertEqual(candidate.status, "rejected")
+        self.assertEqual(candidate.semantic_failure_reason, "post_breakout_extension_too_far")
+
+    def test_clean_policy_is_stricter_than_balanced(self) -> None:
+        balanced = balanced_v2_policy()
+        clean = clean_v2_policy()
+
+        self.assertLess(clean.max_pre_pullback_extension_atr_hard, balanced.max_pre_pullback_extension_atr_hard)
+        self.assertLess(clean.max_signal_to_level_atr_hard, balanced.max_signal_to_level_atr_hard)
+        self.assertLess(clean.max_pullback_attempt_number, balanced.max_pullback_attempt_number)
+        self.assertLess(clean.max_pullback_duration_4h_bars, balanced.max_pullback_duration_4h_bars)
+
 
 class StrictBpResearchGateTests(unittest.TestCase):
     def test_audit_rejects_non_strict_entry_time(self) -> None:
@@ -205,6 +312,26 @@ class StrictBpResearchGateTests(unittest.TestCase):
         }, audit_status="pass", visual_review_status="pass")
 
         self.assertEqual(decision, "inconclusive_manual_full_development_event_scan")
+
+    def test_runner_never_queries_bars_at_or_after_holdout(self) -> None:
+        class RecordingRepository:
+            database_path = Path("fake.duckdb")
+
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, int]] = []
+
+            def load_range(self, instrument, timeframe, start_ms, end_ms, **kwargs):
+                self.calls.append((timeframe, end_ms))
+                return ()
+
+        repository = RecordingRepository()
+        with TemporaryDirectory() as directory:
+            result = run_tc_bp_strict_causal_smoke(repository=repository, output_root=Path(directory))
+
+        holdout_ms = int(__import__("datetime").datetime.fromisoformat(HOLDOUT_START).replace(tzinfo=__import__("datetime").timezone.utc).timestamp() * 1000)
+        self.assertTrue(repository.calls)
+        self.assertTrue(all(end_ms < holdout_ms for _, end_ms in repository.calls))
+        self.assertEqual(result.decision, "semantic_filter_overfit_sample_collapse")
 
 
 if __name__ == "__main__":

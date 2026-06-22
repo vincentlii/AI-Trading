@@ -1,7 +1,7 @@
 ---
 type: research-report
 strategy_family: breakout_pullback_continuation
-status: stopped
+status: stopped_after_first_pullback_v2
 updated: 2026-06-22
 ---
 
@@ -42,3 +42,31 @@ Profile C 严格因果 BP 的统计门改善，但视觉结构门失败，不进
 - 不调 exit、sizing、quality gate 或 cost-aware admission。
 - 不运行四年扫描，除非未来提出新的上游 BP 机制。
 - `bp_shallow_cost_aware_admission_v3` 继续作为 invalidated historical evidence。
+
+## First Pullback Geometry v2
+
+在独立分支 `codex/tc-bp-strict-causal-smoke` 上完成 first-pullback lifecycle v2：
+
+- breakout 时冻结 level、ATR 与 trend state；acceptance 后动态更新 impulse extreme。
+- attempt 1/2 分层，attempt 3 拒绝；close 回到结构区、过深 wick、过远 extension 为硬拒绝。
+- balanced 保留研究样本，clean 仅作视觉 sanity check；visual score 不参与信号过滤。
+- 15m BOS 使用索引定位；entry geometry 单独标记为 diagnostic label，不反馈上游信号。
+- repeated-boundary 改用第二次反应确认时已经可知的 ATR，不再使用全样本 ATR 中位数。
+- diagnostic 数据查询严格截止 `2024-12-01` holdout 前；临界事件的未来标签允许缺失。
+
+五个月 raw OHLCV 重扫结果：
+
+| setup | rows / unique | 4H median | 12H median | +1R first | invalidation first |
+|---|---:|---:|---:|---:|---:|
+| level retest v1 control | 47 / 47 | +0.1493% | +0.3982% | 57.45% | 38.30% |
+| shallow v1 causal control | 75 / 75 | -0.0032% | +0.1904% | 33.33% | 29.33% |
+| v2 balanced | 34 / 34 | +0.0732% | -0.0317% | 55.88% | 35.29% |
+| v2 clean | 9 / 9 | -0.5293% | -0.0133% | 44.44% | 44.44% |
+
+v2 balanced 的 median/p90 signal-to-level 为 `1.034/1.453 ATR`，confirmation chase rate 为 `26.47%`，second-pullback rate 为 `17.65%`。它没有达到 `unique events >= 50`，且 12H 方向诊断转负；Decision 为 `semantic_filter_overfit_sample_collapse`。
+
+Physical candidate funnel 在 level alternatives 去重前有 16,864 行，按真实 breakout 去重后为 323 个；主要损耗是 extension 过远 103、pullback 过深 68、deep reentry 45、15m 无 BOS 39、confirmation chase hard cap 5。最终 34 个 balanced signals 与 funnel 可以逐项对账。
+
+结论：首次回踩语义已经工程化，但本组 balanced/clean 规则没有保留足够且稳定的方向优势。execution、四年扫描、exit/sizing/quality gate 优化继续封锁；不得为了样本数放宽规则或恢复旧缓存。
+
+GitHub 可读取的完整证据包：[[TC BP First Pullback v2 Evidence/README]]。

@@ -1,0 +1,7 @@
+{
+  "candidate_count": 323,
+  "event_count": 165,
+  "level_candidate_count_before_physical_dedup": 16864,
+  "schema_version": "tc_bp_strict_causal_smoke.v2",
+  "status": "complete"
+}

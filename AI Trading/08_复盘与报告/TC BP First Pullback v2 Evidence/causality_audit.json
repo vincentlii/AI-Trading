@@ -1,0 +1,8 @@
+{
+  "entry_semantics": "strictly later legal 15m bar",
+  "holdout_accessed": false,
+  "signal_semantics": "15m BOS confirmed bar close",
+  "status": "pass",
+  "violation_count": 0,
+  "violations": []
+}
