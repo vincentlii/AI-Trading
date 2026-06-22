@@ -429,15 +429,36 @@ class DuckDbCandleRepository:
             connection.close()
 
     def _connect(self):
-        try:
-            import duckdb
-        except ImportError as error:
-            raise ImportError(
-                "DuckDbCandleRepository requires the 'duckdb' package. "
-                "Install project dependencies from requirements.txt."
-            ) from error
+        return _connect_duckdb(self.database_path, read_only=False)
 
-        return duckdb.connect(str(self.database_path))
+
+class ReadOnlyDuckDbCandleRepository(DuckDbCandleRepository):
+    """DuckDB candle reader that never initializes or mutates the database."""
+
+    def __init__(self, database_path: str | PathLike[str]):
+        self.database_path = Path(database_path)
+        if not self.database_path.is_file():
+            raise FileNotFoundError(f"Candle database not found: {self.database_path}")
+
+    def _connect(self):
+        return _connect_duckdb(self.database_path, read_only=True)
+
+    def save_many(self, *args, **kwargs) -> None:
+        raise PermissionError("ReadOnlyDuckDbCandleRepository does not allow writes")
+
+    def update_download_state(self, *args, **kwargs) -> None:
+        raise PermissionError("ReadOnlyDuckDbCandleRepository does not allow writes")
+
+
+def _connect_duckdb(database_path: Path, *, read_only: bool):
+    try:
+        import duckdb
+    except ImportError as error:
+        raise ImportError(
+            "DuckDbCandleRepository requires the 'duckdb' package. "
+            "Install project dependencies from requirements.txt."
+        ) from error
+    return duckdb.connect(str(database_path), read_only=read_only)
 
 
 def required_bars_for_profiles(profiles) -> tuple[str, ...]:
