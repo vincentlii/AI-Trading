@@ -50,6 +50,7 @@ class StrictLevel:
     confirmed_time: int
     reaction_count: int
     atr_at_confirmation: float = 0.0
+    origin_time: int | None = None
 
 
 @dataclass(frozen=True)
@@ -233,6 +234,7 @@ def repeated_boundary_levels(
                 confirmed_time=max(first.confirmed_time, second.confirmed_time),
                 reaction_count=2,
                 atr_at_confirmation=causal_atr_value,
+                origin_time=first.origin_time if first.origin_time is not None else first.source_bar_time,
             ))
             break
     return tuple(output)
@@ -513,6 +515,14 @@ def find_first_15m_bos(
         if confirmed:
             signal_time = row.timestamp_ms + FIFTEEN_MINUTES_MS
             next_row = rows[index + 1] if index + 1 < len(rows) and rows[index + 1].is_confirmed else None
+            if next_row is None or next_row.timestamp_ms != row.timestamp_ms + FIFTEEN_MINUTES_MS:
+                return BosResult(
+                    status="missing_entry_bar",
+                    confirmation_bar_time=row.timestamp_ms,
+                    signal_time=signal_time,
+                    confirmation_price=row.close,
+                    confirmation_delay_bars=checked,
+                )
             return BosResult(
                 status="confirmed",
                 confirmation_bar_time=row.timestamp_ms,
@@ -795,6 +805,7 @@ def _level(row: Candle, direction: str, price: float, half_width: float, confirm
         confirmed_time=confirmed_time,
         reaction_count=1,
         atr_at_confirmation=atr_at_confirmation,
+        origin_time=row.timestamp_ms,
     )
 
 

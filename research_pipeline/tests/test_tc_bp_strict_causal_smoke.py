@@ -188,6 +188,27 @@ class StrictBpSignalTests(unittest.TestCase):
 
         self.assertEqual(bos.status, "failed_before_confirmation")
 
+    def test_bos_does_not_cross_a_missing_entry_bar_gap(self) -> None:
+        rows = (
+            candle(0, 100, 101, 99, 100, step_ms=FIFTEEN_MINUTES_MS),
+            candle(1, 100, 102, 99.5, 101, step_ms=FIFTEEN_MINUTES_MS),
+            candle(2, 101, 103, 100, 102, step_ms=FIFTEEN_MINUTES_MS),
+            candle(3, 102, 102.8, 101, 102.5, step_ms=FIFTEEN_MINUTES_MS),
+            candle(4, 102.5, 104.5, 102, 104.0, step_ms=FIFTEEN_MINUTES_MS),
+            candle(6, 104.0, 105.0, 103.5, 104.5, step_ms=FIFTEEN_MINUTES_MS),
+        )
+
+        bos = find_first_15m_bos(
+            rows,
+            direction="long",
+            observation_start=rows[3].timestamp_ms,
+            invalidation=98.0,
+            policy=self.policy,
+        )
+
+        self.assertEqual(bos.status, "missing_entry_bar")
+        self.assertIsNone(bos.entry_time)
+
     def test_v2_uses_running_extreme_and_accepts_first_shallow_pullback(self) -> None:
         rows = (
             candle(0, 99, 103, 98, 102),
